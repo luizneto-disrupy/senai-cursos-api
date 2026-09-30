@@ -1,3 +1,5 @@
+const cheerio = require("cheerio");
+
 module.exports = async function handler(req, res) {
 
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -48,83 +50,105 @@ module.exports = async function handler(req, res) {
       params.toString();
 
     const browserlessUrl =
-      "https://production-sfo.browserless.io/function" +
+      "https://production-sfo.browserless.io/unblock" +
       "?token=" +
       encodeURIComponent(token) +
-      "&proxy=residential";
-
-    const codigo = `
-      export default async ({ page }) => {
-
-        await page.goto("${url}", {
-          waitUntil: "networkidle2",
-          timeout: 45000
-        });
-
-        await new Promise(resolve =>
-          setTimeout(resolve, 5000)
-        );
-
-        const resultado = await page.evaluate(() => {
-
-          return {
-            titulo: document.title,
-            url: window.location.href,
-            texto: document.body.innerText
-          };
-
-        });
-
-        return {
-          data: JSON.stringify(resultado),
-          type: "application/json"
-        };
-      };
-    `;
+      "&proxy=residential" +
+      "&proxyCountry=br";
 
     const resposta = await fetch(browserlessUrl, {
 
       method: "POST",
 
       headers: {
-        "Content-Type": "application/javascript"
+        "Content-Type": "application/json"
       },
 
-      body: codigo
+      body: JSON.stringify({
+
+        url: url,
+
+        content: true,
+
+        cookies: false,
+
+        screenshot: false,
+
+        browserWSEndpoint: false,
+
+        waitForTimeout: 5000
+
+      })
 
     });
 
-    const textoResposta =
-      await resposta.text();
+    const dados =
+      await resposta.json();
 
     if (!resposta.ok) {
 
       return res.status(500).json({
+
         sucesso: false,
+
         erro: "Browserless retornou erro",
+
         status: resposta.status,
-        detalhe: textoResposta
+
+        detalhe: dados
+
       });
 
     }
 
-    let resultado;
+    const html =
+      dados.content || "";
 
-    try {
-      resultado =
-        JSON.parse(textoResposta);
-    } catch {
+    if (!html) {
 
-      resultado = {
-        resposta: textoResposta
-      };
+      return res.status(500).json({
+
+        sucesso: false,
+
+        erro:
+          "Browserless não retornou o HTML da página.",
+
+        resposta: dados
+
+      });
 
     }
 
+    const $ =
+      cheerio.load(html);
+
+    const titulo =
+      $("title")
+        .first()
+        .text()
+        .trim();
+
+    const texto =
+      $("body")
+        .text()
+        .replace(/\s+/g, " ")
+        .trim();
+
     return res.status(200).json({
+
       sucesso: true,
+
       urlConsultada: url,
-      resultado: resultado
+
+      titulo,
+
+      tamanhoHtml: html.length,
+
+      tamanhoTexto: texto.length,
+
+      inicioTexto:
+        texto.substring(0, 3000)
+
     });
 
   } catch (erro) {
@@ -132,8 +156,11 @@ module.exports = async function handler(req, res) {
     console.error(erro);
 
     return res.status(500).json({
+
       sucesso: false,
+
       erro: erro.message
+
     });
 
   }
