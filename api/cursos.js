@@ -97,7 +97,60 @@ module.exports = async function handler(req, res) {
 
     const $ = cheerio.load(html);
 
+const links = [];
 
+$("a[href*='/curso/']").each((index, elemento) => {
+
+  const href = $(elemento).attr("href");
+
+  if (!href) return;
+
+  let urlCurso;
+
+  try {
+
+    urlCurso = new URL(
+      href,
+      "https://al.senai.br"
+    ).href;
+
+  } catch {
+
+    return;
+
+  }
+
+  links.push({
+    texto: $(elemento)
+      .text()
+      .replace(/\s+/g, " ")
+      .trim(),
+
+    url: urlCurso
+  });
+
+});
+
+return res.status(200).json({
+
+  sucesso: true,
+
+  filtros: {
+    modalidade:
+      "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+
+    unidades: [
+      "POÇO",
+      "DISTRITO INDUSTRIAL"
+    ]
+  },
+
+  totalLinksCurso: links.length,
+
+  links: links.slice(0, 30)
+
+});
+    
     return res.status(200).json({
 
       sucesso: true,
