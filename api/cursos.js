@@ -97,60 +97,296 @@ module.exports = async function handler(req, res) {
 
     const $ = cheerio.load(html);
 
-const links = [];
+    const cursos = [];
+    const cursosProcessados = new Set();
 
-$("a[href*='/curso/']").each((index, elemento) => {
+    /*
+     * Agora procuramos diretamente pelos títulos dos cursos.
+     * A página possui 9 h3 correspondentes aos 9 cursos.
+     */
 
-  const href = $(elemento).attr("href");
+    $("h3").each((index, elemento) => {
 
-  if (!href) return;
+      const titulo =
+        $(elemento)
+          .text()
+          .replace(/\s+/g, " ")
+          .trim();
 
-  let urlCurso;
+      /*
+       * Ignora títulos que não sejam cursos técnicos.
+       */
 
-  try {
+      if (!titulo.toUpperCase().startsWith("TÉCNICO EM")) {
+        return;
+      }
 
-    urlCurso = new URL(
-      href,
-      "https://al.senai.br"
-    ).href;
+      if (cursosProcessados.has(titulo)) {
+        return;
+      }
 
-  } catch {
+      /*
+       * Procuramos o container que representa o card.
+       */
 
-    return;
+      let atual = $(elemento);
+      let card = null;
 
-  }
+      for (let nivel = 0; nivel < 10; nivel++) {
 
-  links.push({
-    texto: $(elemento)
-      .text()
-      .replace(/\s+/g, " ")
-      .trim(),
+        atual = atual.parent();
 
-    url: urlCurso
-  });
+        if (!atual || !atual.length) {
+          break;
+        }
 
-});
+        const texto =
+          atual
+            .text(" ")
+            .replace(/\s+/g, " ")
+            .trim();
 
-return res.status(200).json({
+        const quantidadeH3 =
+          atual.find("h3").length;
 
-  sucesso: true,
+        const temInicio =
+          /Início\s*:/i.test(texto);
 
-  filtros: {
-    modalidade:
-      "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+        const temInvestimento =
+          /Investimento\s*:/i.test(texto);
 
-    unidades: [
-      "POÇO",
-      "DISTRITO INDUSTRIAL"
-    ]
-  },
+        if (
+          quantidadeH3 === 1 &&
+          temInicio &&
+          temInvestimento &&
+          texto.length > 100 &&
+          texto.length < 2000
+        ) {
 
-  totalLinksCurso: links.length,
+          card = atual;
+          break;
 
-  links: links.slice(0, 30)
+        }
 
-});
-    
+      }
+
+      if (!card) {
+        return;
+      }
+
+      const textoCard =
+        card
+          .text(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+      /*
+       * Unidade
+       */
+
+      const unidades = [];
+
+      if (/POÇO/i.test(textoCard)) {
+        unidades.push("POÇO");
+      }
+
+      if (/DISTRITO INDUSTRIAL/i.test(textoCard)) {
+        unidades.push("DISTRITO INDUSTRIAL");
+      }
+
+      /*
+       * Descrição
+       */
+
+      let descricao = "";
+
+      card.find("p").each((i, elementoP) => {
+
+        const textoP =
+          $(elementoP)
+            .text()
+            .replace(/\s+/g, " ")
+            .trim();
+
+        if (!textoP) {
+          return;
+        }
+
+        if (/Início\s*:/i.test(textoP)) {
+          return;
+        }
+
+        if (/Investimento\s*:/i.test(textoP)) {
+          return;
+        }
+
+        if (/Confira/i.test(textoP)) {
+          return;
+        }
+
+        if (textoP.length > descricao.length) {
+          descricao = textoP;
+        }
+
+      });
+
+      /*
+       * Data de início
+       */
+
+      const inicioMatch =
+        textoCard.match(
+          /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
+        );
+
+      const inicio =
+        inicioMatch
+          ? inicioMatch[1]
+          : null;
+
+      /*
+       * Investimento
+       */
+
+      const investimentoMatch =
+        textoCard.match(
+          /Investimento\s*:\s*([\s\S]*?)(?=Confira|$)/i
+        );
+
+      const investimento =
+        investimentoMatch
+          ? investimentoMatch[1]
+              .replace(/\s+/g, " ")
+              .trim()
+          : null;
+
+      /*
+       * Procuramos o link do curso dentro do card.
+       */
+
+      let urlCurso = null;
+
+      card.find("a").each((i, link) => {
+
+        const href =
+          $(link).attr("href");
+
+        if (!href) {
+          return;
+        }
+
+        if (
+          href.includes("/curso/")
+        ) {
+
+          try {
+
+            urlCurso =
+              new URL(
+                href,
+                "https://al.senai.br"
+              ).href;
+
+          } catch {}
+
+        }
+
+      });
+
+      /*
+       * Alguns cursos podem não expor o href de maneira
+       * tradicional no HTML.
+       *
+       * Nesse caso usamos o slug do curso.
+       */
+
+      if (!urlCurso) {
+
+        const slug =
+          titulo
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "");
+
+        urlCurso =
+          "https://al.senai.br/curso/" +
+          slug +
+          "/";
+
+      }
+
+      /*
+       * Imagem
+       */
+
+      let imagem = null;
+
+      const elementoImagem =
+        card.find("img").first();
+
+      if (elementoImagem.length) {
+
+        imagem =
+          elementoImagem.attr("data-src") ||
+          elementoImagem.attr("data-lazy-src") ||
+          elementoImagem.attr("src") ||
+          elementoImagem.attr("data-original") ||
+          null;
+
+        if (
+          imagem &&
+          imagem.startsWith("//")
+        ) {
+          imagem =
+            "https:" + imagem;
+        }
+
+        if (
+          imagem &&
+          imagem.startsWith("/")
+        ) {
+          imagem =
+            "https://al.senai.br" +
+            imagem;
+        }
+
+      }
+
+      cursosProcessados.add(titulo);
+
+      cursos.push({
+
+        titulo: titulo,
+
+        tipo: "Curso Técnico",
+
+        modalidade:
+          "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+
+        unidade:
+          unidades.join(", "),
+
+        descricao:
+          descricao,
+
+        inicio:
+          inicio,
+
+        investimento:
+          investimento,
+
+        imagem:
+          imagem,
+
+        url:
+          urlCurso
+
+      });
+
+    });
+
     return res.status(200).json({
 
       sucesso: true,
@@ -167,9 +403,11 @@ return res.status(200).json({
 
       },
 
-      total: cursosFinais.length,
+      total:
+        cursos.length,
 
-      cursos: cursosFinais
+      cursos:
+        cursos
 
     });
 
