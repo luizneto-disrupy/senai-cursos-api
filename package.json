@@ -1,0 +1,7 @@
+{
+"name": "senai-cursos-api",
+"version": "1.0.0",
+"description": "API de cursos SENAI (serverless function para Vercel)",
+"private": true,
+"license": "UNLICENSED"
+}
