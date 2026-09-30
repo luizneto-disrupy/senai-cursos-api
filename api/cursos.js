@@ -100,11 +100,6 @@ module.exports = async function handler(req, res) {
     const cursos = [];
     const cursosProcessados = new Set();
 
-    /*
-     * Agora procuramos diretamente pelos títulos dos cursos.
-     * A página possui 9 h3 correspondentes aos 9 cursos.
-     */
-
     $("h3").each((index, elemento) => {
 
       const titulo =
@@ -113,21 +108,21 @@ module.exports = async function handler(req, res) {
           .replace(/\s+/g, " ")
           .trim();
 
-      /*
-       * Ignora títulos que não sejam cursos técnicos.
-       */
+      if (!titulo) {
+        return;
+      }
 
-      if (!titulo.toUpperCase().startsWith("TÉCNICO EM")) {
+      if (
+        !titulo
+          .toUpperCase()
+          .startsWith("TÉCNICO EM")
+      ) {
         return;
       }
 
       if (cursosProcessados.has(titulo)) {
         return;
       }
-
-      /*
-       * Procuramos o container que representa o card.
-       */
 
       let atual = $(elemento);
       let card = null;
@@ -142,7 +137,7 @@ module.exports = async function handler(req, res) {
 
         const texto =
           atual
-            .text(" ")
+            .text()
             .replace(/\s+/g, " ")
             .trim();
 
@@ -176,13 +171,9 @@ module.exports = async function handler(req, res) {
 
       const textoCard =
         card
-          .text(" ")
+          .text()
           .replace(/\s+/g, " ")
           .trim();
-
-      /*
-       * Unidade
-       */
 
       const unidades = [];
 
@@ -193,10 +184,6 @@ module.exports = async function handler(req, res) {
       if (/DISTRITO INDUSTRIAL/i.test(textoCard)) {
         unidades.push("DISTRITO INDUSTRIAL");
       }
-
-      /*
-       * Descrição
-       */
 
       let descricao = "";
 
@@ -230,10 +217,6 @@ module.exports = async function handler(req, res) {
 
       });
 
-      /*
-       * Data de início
-       */
-
       const inicioMatch =
         textoCard.match(
           /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
@@ -243,10 +226,6 @@ module.exports = async function handler(req, res) {
         inicioMatch
           ? inicioMatch[1]
           : null;
-
-      /*
-       * Investimento
-       */
 
       const investimentoMatch =
         textoCard.match(
@@ -260,10 +239,6 @@ module.exports = async function handler(req, res) {
               .trim()
           : null;
 
-      /*
-       * Procuramos o link do curso dentro do card.
-       */
-
       let urlCurso = null;
 
       card.find("a").each((i, link) => {
@@ -275,9 +250,7 @@ module.exports = async function handler(req, res) {
           return;
         }
 
-        if (
-          href.includes("/curso/")
-        ) {
+        if (href.includes("/curso/")) {
 
           try {
 
@@ -292,34 +265,6 @@ module.exports = async function handler(req, res) {
         }
 
       });
-
-      /*
-       * Alguns cursos podem não expor o href de maneira
-       * tradicional no HTML.
-       *
-       * Nesse caso usamos o slug do curso.
-       */
-
-      if (!urlCurso) {
-
-        const slug =
-          titulo
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-+|-+$/g, "");
-
-        urlCurso =
-          "https://al.senai.br/curso/" +
-          slug +
-          "/";
-
-      }
-
-      /*
-       * Imagem
-       */
 
       let imagem = null;
 
