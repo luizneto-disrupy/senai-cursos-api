@@ -114,78 +114,172 @@ module.exports = async function handler(req, res) {
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+        .replace(/\s+/g, "-");
 
     }
 
-    function extrairImagem(container) {
+    function encontrarContainerDados(elemento) {
+
+      let atual = $(elemento);
+
+      for (let nivel = 0; nivel < 12; nivel++) {
+
+        atual = atual.parent();
+
+        if (!atual || !atual.length) {
+          break;
+        }
+
+        const texto =
+          limparTexto(atual.text());
+
+        const temInicio =
+          /Início\s*:/i.test(texto);
+
+        const temInvestimento =
+          /Investimento\s*:/i.test(texto);
+
+        if (
+          temInicio &&
+          temInvestimento &&
+          texto.length > 80 &&
+          texto.length < 2500
+        ) {
+
+          return atual;
+
+        }
+
+      }
+
+      return $(elemento);
+
+    }
+
+    function encontrarContainerVisual(elemento) {
+
+      let atual = $(elemento);
+
+      for (let nivel = 0; nivel < 12; nivel++) {
+
+        atual = atual.parent();
+
+        if (!atual || !atual.length) {
+          break;
+        }
+
+        const texto =
+          limparTexto(atual.text());
+
+        const temCursoTecnico =
+          /Curso Técnico/i.test(texto);
+
+        const temUnidade =
+          /POÇO|DISTRITO INDUSTRIAL/i.test(texto);
+
+        const possuiImagem =
+          atual.find("img").length > 0;
+
+        if (
+          temCursoTecnico &&
+          temUnidade &&
+          possuiImagem
+        ) {
+
+          return atual;
+
+        }
+
+      }
+
+      return null;
+
+    }
+
+    function encontrarUnidade(container) {
+
+      if (!container || !container.length) {
+        return null;
+      }
+
+      const texto =
+        limparTexto(
+          container.text()
+        ).toUpperCase();
+
+      const unidades = [];
+
+      if (
+        texto.includes("POÇO")
+      ) {
+        unidades.push("POÇO");
+      }
+
+      if (
+        texto.includes("DISTRITO INDUSTRIAL")
+      ) {
+        unidades.push("DISTRITO INDUSTRIAL");
+      }
+
+      return unidades.length
+        ? unidades.join(", ")
+        : null;
+
+    }
+
+    function encontrarImagem(container) {
+
+      if (!container || !container.length) {
+        return null;
+      }
 
       let imagem = null;
 
-      container.find("img").each((i, elemento) => {
-
-        if (imagem) {
-          return;
-        }
-
-        imagem =
-          $(elemento).attr("data-src") ||
-          $(elemento).attr("data-lazy-src") ||
-          $(elemento).attr("data-original") ||
-          $(elemento).attr("src") ||
-          null;
-
-      });
-
-      if (!imagem) {
-
-        container.find("source").each((i, elemento) => {
+      container.find("img").each(
+        (i, elemento) => {
 
           if (imagem) {
             return;
           }
 
           imagem =
-            $(elemento).attr("data-srcset") ||
-            $(elemento).attr("srcset") ||
+            $(elemento).attr("data-src") ||
+            $(elemento).attr("data-lazy-src") ||
+            $(elemento).attr("data-original") ||
+            $(elemento).attr("src") ||
             null;
 
-          if (imagem) {
-
-            imagem =
-              imagem
-                .split(",")[0]
-                .trim()
-                .split(" ")[0];
-
-          }
-
-        });
-
-      }
+        }
+      );
 
       if (!imagem) {
 
-        container.find("*").each((i, elemento) => {
+        container.find("source").each(
+          (i, elemento) => {
 
-          if (imagem) {
-            return;
+            if (imagem) {
+              return;
+            }
+
+            const srcset =
+              $(elemento).attr("srcset") ||
+              $(elemento).attr("data-srcset") ||
+              null;
+
+            if (srcset) {
+
+              imagem =
+                srcset
+                  .split(",")[0]
+                  .trim()
+                  .split(" ")[0];
+
+            }
+
           }
-
-          const style =
-            $(elemento).attr("style") || "";
-
-          const match =
-            style.match(
-              /background-image\s*:\s*url\(['"]?([^'")]+)['"]?\)/i
-            );
-
-          if (match) {
-            imagem = match[1];
-          }
-
-        });
+        );
 
       }
 
@@ -193,11 +287,15 @@ module.exports = async function handler(req, res) {
         return null;
       }
 
-      if (imagem.startsWith("//")) {
+      if (
+        imagem.startsWith("//")
+      ) {
         return "https:" + imagem;
       }
 
-      if (imagem.startsWith("/")) {
+      if (
+        imagem.startsWith("/")
+      ) {
         return "https://al.senai.br" + imagem;
       }
 
@@ -205,94 +303,43 @@ module.exports = async function handler(req, res) {
 
     }
 
-    function encontrarUnidade(container) {
-
-      const unidadesPossiveis = [
-        "POÇO",
-        "DISTRITO INDUSTRIAL"
-      ];
-
-      let unidadeEncontrada = [];
-
-      container
-        .find("*")
-        .each((i, elemento) => {
-
-          const texto =
-            limparTexto($(elemento).text())
-              .toUpperCase();
-
-          if (
-            texto === "POÇO" &&
-            !unidadeEncontrada.includes("POÇO")
-          ) {
-            unidadeEncontrada.push("POÇO");
-          }
-
-          if (
-            texto === "DISTRITO INDUSTRIAL" &&
-            !unidadeEncontrada.includes("DISTRITO INDUSTRIAL")
-          ) {
-            unidadeEncontrada.push("DISTRITO INDUSTRIAL");
-          }
-
-        });
-
-      if (unidadeEncontrada.length) {
-        return unidadeEncontrada.join(", ");
-      }
-
-      const textoCompleto =
-        limparTexto(container.text())
-          .toUpperCase();
-
-      const resultado = [];
-
-      unidadesPossiveis.forEach(unidade => {
-
-        if (textoCompleto.includes(unidade)) {
-          resultado.push(unidade);
-        }
-
-      });
-
-      return resultado.join(", ");
-
-    }
-
     function encontrarUrl(container, titulo) {
 
       let urlCurso = null;
 
-      container
-        .find("a[href]")
-        .each((i, elemento) => {
+      if (container && container.length) {
 
-          if (urlCurso) {
-            return;
+        container.find("a[href]").each(
+          (i, elemento) => {
+
+            if (urlCurso) {
+              return;
+            }
+
+            const href =
+              $(elemento).attr("href");
+
+            if (
+              href &&
+              href.includes("/curso/")
+            ) {
+
+              try {
+
+                urlCurso =
+                  new URL(
+                    href,
+                    "https://al.senai.br"
+                  ).href;
+
+              } catch {}
+
+            }
+
           }
+        );
 
-          const href =
-            $(elemento).attr("href");
-
-          if (
-            href &&
-            href.includes("/curso/")
-          ) {
-
-            try {
-
-              urlCurso =
-                new URL(
-                  href,
-                  "https://al.senai.br"
-                ).href;
-
-            } catch {}
-
-          }
-
-        });
+      }
 
       if (urlCurso) {
         return urlCurso;
@@ -306,16 +353,13 @@ module.exports = async function handler(req, res) {
 
     }
 
-    /*
-     * Procuramos h2, h3, h4 e h5.
-     * Isso evita depender de uma única marca HTML.
-     */
-
     $("h2, h3, h4, h5").each(
       (index, elemento) => {
 
         const titulo =
-          limparTexto($(elemento).text());
+          limparTexto(
+            $(elemento).text()
+          );
 
         if (!titulo) {
           return;
@@ -329,74 +373,41 @@ module.exports = async function handler(req, res) {
           return;
         }
 
-        if (cursosProcessados.has(titulo)) {
+        if (
+          cursosProcessados.has(titulo)
+        ) {
           return;
         }
 
-        let atual = $(elemento);
-        const candidatos = [];
+        const containerDados =
+          encontrarContainerDados(
+            elemento
+          );
 
-        /*
-         * Procuramos vários níveis acima do título.
-         * Não exigimos que exista exatamente um h3.
-         */
+        const containerVisual =
+          encontrarContainerVisual(
+            elemento
+          );
 
-        for (let nivel = 0; nivel < 12; nivel++) {
+        const textoDados =
+          limparTexto(
+            containerDados.text()
+          );
 
-          atual = atual.parent();
+        const textoVisual =
+          containerVisual
+            ? limparTexto(
+                containerVisual.text()
+              )
+            : "";
 
-          if (!atual || !atual.length) {
-            break;
-          }
-
-          const texto =
-            limparTexto(atual.text());
-
-          const temInicio =
-            /Início\s*:/i.test(texto);
-
-          const temInvestimento =
-            /Investimento\s*:/i.test(texto);
-
-          if (
-            temInicio &&
-            temInvestimento &&
-            texto.length > 80 &&
-            texto.length < 2500
-          ) {
-
-            candidatos.push(atual);
-
-          }
-
-        }
-
-        if (!candidatos.length) {
-          return;
-        }
-
-        /*
-         * Escolhemos o menor container que contém
-         * as informações do curso.
-         */
-
-        candidatos.sort(
-          (a, b) =>
-            limparTexto(a.text()).length -
-            limparTexto(b.text()).length
-        );
-
-        const card =
-          candidatos[0];
-
-        const textoCard =
-          limparTexto(card.text());
-
-        const unidade =
-          encontrarUnidade(card);
+        const textoCompleto =
+          limparTexto(
+            textoVisual + " " + textoDados
+          );
 
         const inicioMatch =
-          textoCard.match(
+          textoCompleto.match(
             /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
           );
 
@@ -406,7 +417,7 @@ module.exports = async function handler(req, res) {
             : null;
 
         const investimentoMatch =
-          textoCard.match(
+          textoCompleto.match(
             /Investimento\s*:\s*([\s\S]*?)(?=Confira|$)/i
           );
 
@@ -419,7 +430,7 @@ module.exports = async function handler(req, res) {
 
         let descricao = "";
 
-        card.find("p").each(
+        containerDados.find("p").each(
           (i, elementoP) => {
 
             const textoP =
@@ -450,7 +461,8 @@ module.exports = async function handler(req, res) {
             }
 
             if (
-              textoP.length > descricao.length
+              textoP.length >
+              descricao.length
             ) {
               descricao = textoP;
             }
@@ -458,14 +470,23 @@ module.exports = async function handler(req, res) {
           }
         );
 
-        const urlCurso =
-          encontrarUrl(
-            card,
-            titulo
+        const unidade =
+          encontrarUnidade(
+            containerVisual ||
+            containerDados
           );
 
         const imagem =
-          extrairImagem(card);
+          encontrarImagem(
+            containerVisual
+          );
+
+        const urlCurso =
+          encontrarUrl(
+            containerVisual ||
+            containerDados,
+            titulo
+          );
 
         cursosProcessados.add(titulo);
 
@@ -479,7 +500,7 @@ module.exports = async function handler(req, res) {
             "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
 
           unidade:
-            unidade || null,
+            unidade,
 
           descricao:
             descricao || null,
