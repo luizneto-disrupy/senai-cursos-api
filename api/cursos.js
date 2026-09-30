@@ -1,5 +1,3 @@
-const cheerio = require("cheerio");
-
 module.exports = async function handler(req, res) {
 
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -18,6 +16,15 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+
+    const token = process.env.BROWSERLESS_TOKEN;
+
+    if (!token) {
+      return res.status(500).json({
+        sucesso: false,
+        erro: "BROWSERLESS_TOKEN não configurado no Vercel"
+      });
+    }
 
     const params = new URLSearchParams();
 
@@ -40,74 +47,84 @@ module.exports = async function handler(req, res) {
       "https://al.senai.br/cursos/?" +
       params.toString();
 
-    /*
-     * Usamos o Reader da Jina para fazer a consulta.
-     * Isso evita o bloqueio 403 que ocorreu diretamente
-     * entre o Vercel e o SENAI.
-     */
+    const browserlessUrl =
+      "https://production-sfo.browserless.io/function" +
+      "?token=" +
+      encodeURIComponent(token) +
+      "&proxy=residential";
 
-    const readerUrl =
-      "https://r.jina.ai/" + url;
+    const codigo = `
+      export default async ({ page }) => {
 
-    const resposta = await fetch(readerUrl, {
+        await page.goto("${url}", {
+          waitUntil: "networkidle2",
+          timeout: 45000
+        });
+
+        await new Promise(resolve =>
+          setTimeout(resolve, 5000)
+        );
+
+        const resultado = await page.evaluate(() => {
+
+          return {
+            titulo: document.title,
+            url: window.location.href,
+            texto: document.body.innerText
+          };
+
+        });
+
+        return {
+          data: JSON.stringify(resultado),
+          type: "application/json"
+        };
+      };
+    `;
+
+    const resposta = await fetch(browserlessUrl, {
+
+      method: "POST",
+
       headers: {
-        "Accept": "text/plain",
-        "User-Agent": "Mozilla/5.0"
-      }
-    });
-
-    if (!resposta.ok) {
-      throw new Error(
-        `Jina retornou status ${resposta.status}`
-      );
-    }
-
-    const conteudo = await resposta.text();
-
-    /*
-     * A resposta da Jina é conteúdo convertido.
-     * Criamos uma estrutura HTML temporária para
-     * facilitar a extração.
-     */
-
-    const $ = cheerio.load(
-      `<div id="conteudo">${conteudo}</div>`
-    );
-
-    const texto =
-      $("#conteudo")
-        .text()
-        .replace(/\s+/g, " ")
-        .trim();
-
-    /*
-     * Aqui começamos por retornar o conteúdo bruto.
-     * Isso é proposital.
-     *
-     * Primeiro vamos confirmar que a Jina conseguiu
-     * acessar corretamente a página filtrada.
-     */
-
-    return res.status(200).json({
-
-      sucesso: true,
-
-      fonte: url,
-
-      filtros: {
-        modalidade:
-          "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
-
-        unidades: [
-          "POÇO",
-          "DISTRITO INDUSTRIAL"
-        ]
+        "Content-Type": "application/javascript"
       },
 
-      tamanho: texto.length,
+      body: codigo
 
-      conteudo: texto
+    });
 
+    const textoResposta =
+      await resposta.text();
+
+    if (!resposta.ok) {
+
+      return res.status(500).json({
+        sucesso: false,
+        erro: "Browserless retornou erro",
+        status: resposta.status,
+        detalhe: textoResposta
+      });
+
+    }
+
+    let resultado;
+
+    try {
+      resultado =
+        JSON.parse(textoResposta);
+    } catch {
+
+      resultado = {
+        resposta: textoResposta
+      };
+
+    }
+
+    return res.status(200).json({
+      sucesso: true,
+      urlConsultada: url,
+      resultado: resultado
     });
 
   } catch (erro) {
@@ -115,15 +132,8 @@ module.exports = async function handler(req, res) {
     console.error(erro);
 
     return res.status(500).json({
-
       sucesso: false,
-
-      erro:
-        "Não foi possível consultar os cursos do SENAI.",
-
-      detalhe:
-        erro.message
-
+      erro: erro.message
     });
 
   }
