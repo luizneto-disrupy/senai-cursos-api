@@ -102,7 +102,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 3. URL FILTRADA DO SENAI
+     * 3. FILTROS DO SENAI
      * ==========================================
      */
 
@@ -219,17 +219,30 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 5. PROCESSAMENTO DO HTML
+     * 5. CHEERIO
      * ==========================================
      */
 
     const $ =
       cheerio.load(html);
 
-    const cursos = [];
+    /*
+     * Texto completo da página.
+     *
+     * Aqui removemos a dependência da estrutura
+     * dos elementos <p>.
+     */
 
-    const cursosProcessados =
-      new Set();
+    const textoPagina =
+      limparTexto(
+        $("body").text()
+      );
+
+    /*
+     * ==========================================
+     * FUNÇÕES AUXILIARES
+     * ==========================================
+     */
 
     function limparTexto(valor) {
 
@@ -255,61 +268,6 @@ module.exports = async function handler(req, res) {
         .replace(
           /^-+|-+$/g,
           "");
-
-    }
-
-    function encontrarContainerDados(
-      elemento
-    ) {
-
-      let atual =
-        $(elemento);
-
-      for (
-        let nivel = 0;
-        nivel < 12;
-        nivel++
-      ) {
-
-        atual =
-          atual.parent();
-
-        if (
-          !atual ||
-          !atual.length
-        ) {
-          break;
-        }
-
-        const texto =
-          limparTexto(
-            atual.text()
-          );
-
-        const temInicio =
-          /Início\s*:/i.test(
-            texto
-          );
-
-        const temInvestimento =
-          /Investimento\s*:/i.test(
-            texto
-          );
-
-        if (
-          temInicio &&
-          temInvestimento &&
-          texto.length > 80 &&
-          texto.length < 2500
-        ) {
-
-          return atual;
-
-        }
-
-      }
-
-      return $(elemento);
 
     }
 
@@ -591,9 +549,173 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 6. EXTRAÇÃO DOS CURSOS
+     * 6. EXTRAI O BLOCO DE TEXTO DO CURSO
      * ==========================================
      */
+
+    function encontrarBlocoCurso(
+      titulo
+    ) {
+
+      const posicaoTitulo =
+        textoPagina.indexOf(
+          titulo
+        );
+
+      if (
+        posicaoTitulo === -1
+      ) {
+        return "";
+      }
+
+      const inicio =
+        posicaoTitulo +
+        titulo.length;
+
+      const restante =
+        textoPagina.substring(
+          inicio
+        );
+
+      /*
+       * Procuramos o próximo curso.
+       */
+
+      const proximoCurso =
+        restante.search(
+          /TÉCNICO EM [A-ZÁÉÍÓÚÀÂÊÔÃÕÇ0-9]/i
+        );
+
+      if (
+        proximoCurso === -1
+      ) {
+
+        return restante;
+
+      }
+
+      return restante.substring(
+        0,
+        proximoCurso
+      );
+
+    }
+
+    /*
+     * ==========================================
+     * 7. EXTRAI DESCRIÇÃO
+     * ==========================================
+     */
+
+    function encontrarDescricao(
+      titulo
+    ) {
+
+      const bloco =
+        encontrarBlocoCurso(
+          titulo
+        );
+
+      if (!bloco) {
+        return null;
+      }
+
+      const inicio =
+        bloco.search(
+          /Início\s*:/i
+        );
+
+      if (
+        inicio === -1
+      ) {
+        return null;
+      }
+
+      let descricao =
+        bloco.substring(
+          0,
+          inicio
+        );
+
+      /*
+       * Remove elementos da interface
+       * que eventualmente estejam antes
+       * da descrição.
+       */
+
+      descricao =
+        descricao
+          .replace(
+            /Curso Técnico/gi,
+            ""
+          )
+          .replace(
+            /POÇO/gi,
+            ""
+          )
+          .replace(
+            /DISTRITO INDUSTRIAL/gi,
+            ""
+          )
+          .replace(
+            /Compartilhar lista/gi,
+            ""
+          )
+          .trim();
+
+      descricao =
+        limparTexto(
+          descricao
+        );
+
+      return descricao || null;
+
+    }
+
+    /*
+     * ==========================================
+     * 8. EXTRAI INVESTIMENTO
+     * ==========================================
+     */
+
+    function encontrarInvestimento(
+      titulo
+    ) {
+
+      const bloco =
+        encontrarBlocoCurso(
+          titulo
+        );
+
+      if (!bloco) {
+        return null;
+      }
+
+      const resultado =
+        bloco.match(
+          /Investimento\s*:\s*([0-9]+X\s*de\s*R\$\s*[0-9.,]+)/i
+        );
+
+      if (
+        !resultado
+      ) {
+        return null;
+      }
+
+      return limparTexto(
+        resultado[1]
+      );
+
+    }
+
+    /*
+     * ==========================================
+     * 9. LOCALIZA OS TÍTULOS
+     * ==========================================
+     */
+
+    const titulosCursos =
+      [];
 
     $("h2, h3, h4, h5")
       .each(
@@ -619,51 +741,83 @@ module.exports = async function handler(req, res) {
           }
 
           if (
-            cursosProcessados.has(
+            !titulosCursos.includes(
               titulo
             )
           ) {
-            return;
+
+            titulosCursos.push(
+              titulo
+            );
+
           }
 
-          const containerDados =
-            encontrarContainerDados(
-              elemento
-            );
+        }
+      );
 
-          const containerVisual =
-            encontrarContainerVisual(
-              elemento
-            );
+    /*
+     * ==========================================
+     * 10. MONTA OS CURSOS
+     * ==========================================
+     */
 
-          const textoDados =
-            limparTexto(
-              containerDados.text()
-            );
+    const cursos =
+      [];
 
-          const textoVisual =
-            containerVisual
-              ? limparTexto(
-                  containerVisual.text()
-                )
-              : "";
+    titulosCursos.forEach(
+      (titulo) => {
 
-          const textoCompleto =
-            limparTexto(
-              textoVisual +
-              " " +
-              textoDados
-            );
+        const elementoTitulo =
+          $("h2, h3, h4, h5")
+            .filter(
+              (index, elemento) =>
+                limparTexto(
+                  $(elemento).text()
+                ) === titulo
+            )
+            .first();
 
-          /*
-           * Início
-           */
+        if (
+          !elementoTitulo.length
+        ) {
+          return;
+        }
 
-          let inicio =
-            null;
+        const containerVisual =
+          encontrarContainerVisual(
+            elementoTitulo
+          );
+
+        /*
+         * Dados principais
+         */
+
+        const descricao =
+          encontrarDescricao(
+            titulo
+          );
+
+        const investimento =
+          encontrarInvestimento(
+            titulo
+          );
+
+        /*
+         * Início
+         */
+
+        const bloco =
+          encontrarBlocoCurso(
+            titulo
+          );
+
+        let inicio =
+          null;
+
+        if (bloco) {
 
           const inicioMatch =
-            textoCompleto.match(
+            bloco.match(
               /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
             );
 
@@ -674,166 +828,121 @@ module.exports = async function handler(req, res) {
 
           }
 
-          /*
-           * Investimento
-           */
+        }
 
-          let investimento =
-            null;
+        /*
+         * Unidade
+         */
 
-          const investimentoMatch =
-            textoCompleto.match(
-              /Investimento\s*:\s*(.*?)(?=Confira|$)/i
+        let unidade =
+          encontrarUnidade(
+            containerVisual
+          );
+
+        /*
+         * Caso não encontre a unidade
+         * no container visual, procura no bloco.
+         */
+
+        if (!unidade) {
+
+          const blocoMaior =
+            encontrarBlocoCurso(
+              titulo
+            ).toUpperCase();
+
+          const unidades =
+            [];
+
+          if (
+            blocoMaior.includes(
+              "POÇO"
+            )
+          ) {
+
+            unidades.push(
+              "POÇO"
             );
-
-          if (investimentoMatch) {
-
-            investimento =
-              limparTexto(
-                investimentoMatch[1]
-              );
 
           }
 
-          /*
-           * Descrição
-           */
+          if (
+            blocoMaior.includes(
+              "DISTRITO INDUSTRIAL"
+            )
+          ) {
 
-          let descricao =
-            null;
-
-          const paragrafos =
-            containerDados.find(
-              "p"
+            unidades.push(
+              "DISTRITO INDUSTRIAL"
             );
 
-          paragrafos.each(
-            (i, elementoP) => {
+          }
 
-              if (descricao) {
-                return;
-              }
-
-              const textoP =
-                limparTexto(
-                  $(elementoP).text()
-                );
-
-              if (!textoP) {
-                return;
-              }
-
-              if (
-                /Início\s*:/i.test(
-                  textoP
+          unidade =
+            unidades.length
+              ? unidades.join(
+                  ", "
                 )
-              ) {
-                return;
-              }
+              : null;
 
-              if (
-                /Investimento\s*:/i.test(
-                  textoP
-                )
-              ) {
-                return;
-              }
+        }
 
-              if (
-                /Confira/i.test(
-                  textoP
-                )
-              ) {
-                return;
-              }
+        /*
+         * Imagem
+         */
 
-              if (
-                textoP.length >= 20
-              ) {
-
-                descricao =
-                  textoP;
-
-              }
-
-            }
+        const imagem =
+          encontrarImagem(
+            containerVisual
           );
 
-          /*
-           * Unidade
-           */
+        /*
+         * URL
+         */
 
-          const unidade =
-            encontrarUnidade(
-              containerVisual ||
-              containerDados
-            );
-
-          /*
-           * Imagem
-           */
-
-          const imagem =
-            encontrarImagem(
-              containerVisual
-            );
-
-          /*
-           * URL
-           */
-
-          const urlCurso =
-            encontrarUrl(
-              containerVisual ||
-              containerDados,
-              titulo
-            );
-
-          /*
-           * Adiciona o curso
-           */
-
-          cursosProcessados.add(
+        const urlCurso =
+          encontrarUrl(
+            containerVisual,
             titulo
           );
 
-          cursos.push({
+        cursos.push({
 
-            titulo:
-              titulo,
+          titulo:
+            titulo,
 
-            tipo:
-              "Curso Técnico",
+          tipo:
+            "Curso Técnico",
 
-            modalidade:
-              "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+          modalidade:
+            "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
 
-            unidade:
-              unidade,
+          unidade:
+            unidade,
 
-            descricao:
-              descricao,
+          descricao:
+            descricao,
 
-            inicio:
-              inicio,
+          inicio:
+            inicio,
 
-            investimento:
-              investimento,
+          investimento:
+            investimento,
 
-            imagem:
-              imagem,
+          imagem:
+            imagem,
 
-            url:
-              urlCurso
+          url:
+            urlCurso
 
-          });
+        });
 
-        }
-      );
+      }
+    );
 
     /*
      * ==========================================
-     * 7. REMOVE DUPLICIDADES
+     * 11. REMOVE DUPLICIDADES
      * ==========================================
      */
 
@@ -855,7 +964,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 8. VALIDAÇÃO
+     * 12. VALIDAÇÃO
      * ==========================================
      */
 
@@ -876,7 +985,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 9. MONTA CATÁLOGO
+     * 13. CATÁLOGO
      * ==========================================
      */
 
@@ -907,7 +1016,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 10. SALVA NO SUPABASE
+     * 14. SUPABASE
      * ==========================================
      */
 
@@ -982,7 +1091,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 11. SUCESSO
+     * 15. SUCESSO
      * ==========================================
      */
 
