@@ -25,6 +25,42 @@ function escaparRegex(texto) {
   return String(texto).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizarUrl(url) {
+  let valor = String(url || "").trim();
+
+  if (!valor) {
+    return null;
+  }
+
+  const markdown = valor.match(/^\[[^\]]*\]\(([^)]+)\)$/);
+
+  if (markdown) {
+    valor = markdown[1].trim();
+  }
+
+  valor = valor
+    .replace(/^["']/, "")
+    .replace(/["']$/, "")
+    .trim();
+
+  if (valor.startsWith("//")) {
+    return `https:${valor}`;
+  }
+
+  if (valor.startsWith("/")) {
+    return `https://al.senai.br${valor}`;
+  }
+
+  if (
+    valor.startsWith("http://") ||
+    valor.startsWith("https://")
+  ) {
+    return valor;
+  }
+
+  return null;
+}
+
 function extrairInvestimento(texto) {
   const valor = limparTexto(texto);
 
@@ -68,10 +104,17 @@ function encontrarContainerCurso($, elementoTitulo) {
       $(elementoTitulo).text()
     );
 
-    const temTitulo = normalizado.includes(tituloNormalizado);
-    const temInvestimento = /investimento\s*:/i.test(texto);
-    const temConfira = /Confira/i.test(texto);
-    const temInicio = /In[ií]cio\s*:/i.test(texto);
+    const temTitulo =
+      normalizado.includes(tituloNormalizado);
+
+    const temInvestimento =
+      /investimento\s*:/i.test(texto);
+
+    const temConfira =
+      /Confira/i.test(texto);
+
+    const temInicio =
+      /In[ií]cio\s*:/i.test(texto);
 
     if (
       nivel >= 1 &&
@@ -142,15 +185,21 @@ function extrairDescricaoPorLinhas(texto, titulo) {
     return null;
   }
 
-  const tituloNormalizado = normalizarTexto(titulo);
+  const tituloNormalizado =
+    normalizarTexto(titulo);
 
   let indiceTitulo = linhas.findIndex(
-    (linha) => normalizarTexto(linha) === tituloNormalizado
+    (linha) =>
+      normalizarTexto(linha) ===
+      tituloNormalizado
   );
 
   if (indiceTitulo === -1) {
-    indiceTitulo = linhas.findIndex((linha) =>
-      normalizarTexto(linha).includes(tituloNormalizado)
+    indiceTitulo = linhas.findIndex(
+      (linha) =>
+        normalizarTexto(linha).includes(
+          tituloNormalizado
+        )
     );
   }
 
@@ -192,8 +241,10 @@ function extrairDescricaoPorLinhas(texto, titulo) {
     if (
       normalizada === "poco" ||
       normalizada === "distrito industrial" ||
-      normalizada === "poco distrito industrial" ||
-      normalizada === "distrito industrial poco"
+      normalizada ===
+        "poco distrito industrial" ||
+      normalizada ===
+        "distrito industrial poco"
     ) {
       continue;
     }
@@ -213,82 +264,165 @@ function extrairDescricaoPorLinhas(texto, titulo) {
     return null;
   }
 
-  const descricao = limparTexto(candidatos.join(" "));
+  const descricao =
+    limparTexto(candidatos.join(" "));
 
-  return descricao.length >= 15 ? descricao : null;
+  return descricao.length >= 15
+    ? descricao
+    : null;
+}
+
+function transformarSrcSet(srcset) {
+  if (!srcset) {
+    return null;
+  }
+
+  const primeiro = String(srcset)
+    .split(",")[0]
+    .trim();
+
+  if (!primeiro) {
+    return null;
+  }
+
+  return primeiro
+    .split(/\s+/)[0]
+    .trim();
+}
+
+function extrairUrlDeEstilo(style) {
+  const valor = String(style || "");
+
+  const match = valor.match(
+    /background-image\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/i
+  );
+
+  return match ? match[1] : null;
 }
 
 function extrairImagem($, container) {
-  const imagem = container.find("img").first();
+  let candidatos = [];
 
-  if (!imagem.length) {
-    return null;
+  function adicionar(valor) {
+    const url = normalizarUrl(valor);
+
+    if (!url) {
+      return;
+    }
+
+    if (
+      /\.svg(\?|$)/i.test(url) ||
+      /placeholder/i.test(url) ||
+      /loading/i.test(url)
+    ) {
+      return;
+    }
+
+    if (!candidatos.includes(url)) {
+      candidatos.push(url);
+    }
   }
 
-  let src =
-    imagem.attr("src") ||
-    imagem.attr("data-src") ||
-    imagem.attr("data-lazy-src") ||
-    imagem.attr("data-original") ||
-    null;
+  function analisarElemento(elemento) {
+    const no = $(elemento);
 
-  if (!src) {
-    return null;
+    adicionar(no.attr("src"));
+    adicionar(no.attr("data-src"));
+    adicionar(no.attr("data-lazy-src"));
+    adicionar(no.attr("data-original"));
+    adicionar(no.attr("data-image"));
+    adicionar(no.attr("data-bg"));
+    adicionar(no.attr("data-background-image"));
+
+    adicionar(
+      transformarSrcSet(
+        no.attr("srcset")
+      )
+    );
+
+    adicionar(
+      transformarSrcSet(
+        no.attr("data-srcset")
+      )
+    );
+
+    adicionar(
+      extrairUrlDeEstilo(
+        no.attr("style")
+      )
+    );
   }
 
-  if (src.startsWith("//")) {
-    return `https:${src}`;
+  analisarElemento(container);
+
+  container.find("*").each(function () {
+    analisarElemento(this);
+  });
+
+  let atual = container.parent();
+
+  for (let nivel = 0; nivel < 5; nivel++) {
+    if (!atual || !atual.length) {
+      break;
+    }
+
+    analisarElemento(atual);
+
+    atual.find("img, source, a, div, figure, picture").each(
+      function () {
+        analisarElemento(this);
+      }
+    );
+
+    atual = atual.parent();
   }
 
-  if (src.startsWith("/")) {
-    return `https://al.senai.br${src}`;
-  }
-
-  return src;
+  return candidatos.length
+    ? candidatos[0]
+    : null;
 }
 
 function extrairUrl($, container) {
-  const confira = container
-    .find("a[href]")
-    .filter(function () {
-      return /Confira/i.test(limparTexto($(this).text()));
-    })
-    .first();
+  const links = [];
 
-  if (confira.length) {
-    const href = confira.attr("href");
+  container.find("a[href]").each(
+    function () {
+      const href = $(this).attr("href");
 
-    if (href) {
-      if (href.startsWith("/")) {
-        return `https://al.senai.br${href}`;
+      if (href) {
+        links.push({
+          href,
+          texto: limparTexto($(this).text()),
+        });
       }
-
-      return href;
     }
+  );
+
+  const confira = links.find(
+    (item) =>
+      /Confira/i.test(item.texto)
+  );
+
+  if (confira) {
+    return normalizarUrl(confira.href);
   }
 
-  const qualquerLink = container.find("a[href]").first();
+  const primeiroLink = links.find(
+    (item) =>
+      normalizarUrl(item.href)
+  );
 
-  if (qualquerLink.length) {
-    const href = qualquerLink.attr("href");
-
-    if (href) {
-      if (href.startsWith("/")) {
-        return `https://al.senai.br${href}`;
-      }
-
-      return href;
-    }
-  }
-
-  return null;
+  return primeiroLink
+    ? normalizarUrl(primeiroLink.href)
+    : null;
 }
 
 function extrairUnidade(texto) {
   const valor = limparTexto(texto);
 
   const temPoco = /POÇO/i.test(valor);
-  const temDistrito = /DISTRITO INDUSTRIAL/i.test(valor);
+  const temDistrito =
+    /DISTRITO INDUSTRIAL/i.test(valor);
 
   if (temPoco && temDistrito) {
     return "POÇO DISTRITO INDUSTRIAL";
@@ -305,21 +439,31 @@ function extrairUnidade(texto) {
   return null;
 }
 
-function obterBlocoDoCurso(textoPagina, titulo, titulos) {
+function obterBlocoDoCurso(
+  textoPagina,
+  titulo,
+  titulos
+) {
   const linhas = limparTexto(textoPagina)
     .split("\n")
     .map((linha) => limparTexto(linha))
     .filter(Boolean);
 
-  const tituloNormalizado = normalizarTexto(titulo);
+  const tituloNormalizado =
+    normalizarTexto(titulo);
 
   let indiceAtual = linhas.findIndex(
-    (linha) => normalizarTexto(linha) === tituloNormalizado
+    (linha) =>
+      normalizarTexto(linha) ===
+      tituloNormalizado
   );
 
   if (indiceAtual === -1) {
-    indiceAtual = linhas.findIndex((linha) =>
-      normalizarTexto(linha).includes(tituloNormalizado)
+    indiceAtual = linhas.findIndex(
+      (linha) =>
+        normalizarTexto(linha).includes(
+          tituloNormalizado
+        )
     );
   }
 
@@ -327,48 +471,64 @@ function obterBlocoDoCurso(textoPagina, titulo, titulos) {
     return "";
   }
 
-  const linhasBloco = [linhas[indiceAtual]];
+  const linhasBloco = [
+    linhas[indiceAtual],
+  ];
 
-  const titulosNormalizados = titulos.map((item) =>
-    normalizarTexto(item)
-  );
+  const titulosNormalizados =
+    titulos.map((item) =>
+      normalizarTexto(item)
+    );
 
   for (
     let indice = indiceAtual + 1;
     indice < linhas.length;
     indice++
   ) {
-    const linhaNormalizada = normalizarTexto(linhas[indice]);
+    const linhaNormalizada =
+      normalizarTexto(linhas[indice]);
 
     if (
-      titulosNormalizados.includes(linhaNormalizada) &&
-      linhaNormalizada !== tituloNormalizado
+      titulosNormalizados.includes(
+        linhaNormalizada
+      ) &&
+      linhaNormalizada !==
+        tituloNormalizado
     ) {
       break;
     }
 
-    linhasBloco.push(linhas[indice]);
+    linhasBloco.push(
+      linhas[indice]
+    );
   }
 
-  return limparTexto(linhasBloco.join("\n"));
+  return limparTexto(
+    linhasBloco.join("\n")
+  );
 }
 
-async function obterHtmlComScrapingBee(apiKey) {
-  const parametros = new URLSearchParams({
-    api_key: apiKey,
-    url: URL_SENAI,
-    mode: "auto",
-    max_cost: "25",
-    country_code: "br",
-    wait_for: "h3",
-  });
+async function obterHtmlComScrapingBee(
+  apiKey
+) {
+  const parametros =
+    new URLSearchParams({
+      api_key: apiKey,
+      url: URL_SENAI,
+      mode: "auto",
+      max_cost: "25",
+      country_code: "br",
+      wait_for: "h3",
+    });
 
   const url =
     `https://app.scrapingbee.com/api/v1/?${parametros.toString()}`;
 
-  const resposta = await fetch(url);
+  const resposta =
+    await fetch(url);
 
-  const html = await resposta.text();
+  const html =
+    await resposta.text();
 
   if (!resposta.ok) {
     throw new Error(
@@ -376,7 +536,10 @@ async function obterHtmlComScrapingBee(apiKey) {
     );
   }
 
-  if (!html || html.length < 1000) {
+  if (
+    !html ||
+    html.length < 1000
+  ) {
     throw new Error(
       "ScrapingBee retornou HTML vazio ou incompleto."
     );
@@ -385,30 +548,43 @@ async function obterHtmlComScrapingBee(apiKey) {
   return html;
 }
 
-export default async function handler(req, res) {
+export default async function handler(
+  req,
+  res
+) {
   try {
     const authHeader =
       req.headers.authorization ||
       req.headers.Authorization ||
       "";
 
-    const tokenRecebido = authHeader
-      .replace(/^Bearer\s+/i, "")
-      .trim();
+    const tokenRecebido =
+      authHeader
+        .replace(
+          /^Bearer\s+/i,
+          ""
+        )
+        .trim();
 
-    const cronSecret = process.env.CRON_SECRET;
+    const cronSecret =
+      process.env.CRON_SECRET;
 
     if (!cronSecret) {
       return res.status(500).json({
         sucesso: false,
-        erro: "CRON_SECRET não configurado.",
+        erro:
+          "CRON_SECRET não configurado.",
       });
     }
 
-    if (!tokenRecebido || tokenRecebido !== cronSecret) {
+    if (
+      !tokenRecebido ||
+      tokenRecebido !== cronSecret
+    ) {
       return res.status(401).json({
         sucesso: false,
-        erro: "Não autorizado.",
+        erro:
+          "Não autorizado.",
       });
     }
 
@@ -424,21 +600,24 @@ export default async function handler(req, res) {
     if (!scrapingBeeApiKey) {
       return res.status(500).json({
         sucesso: false,
-        erro: "SCRAPINGBEE_API_KEY não configurado.",
+        erro:
+          "SCRAPINGBEE_API_KEY não configurado.",
       });
     }
 
     if (!supabaseUrl) {
       return res.status(500).json({
         sucesso: false,
-        erro: "SUPABASE_URL não configurado.",
+        erro:
+          "SUPABASE_URL não configurado.",
       });
     }
 
     if (!supabaseSecretKey) {
       return res.status(500).json({
         sucesso: false,
-        erro: "SUPABASE_SECRET_KEY não configurado.",
+        erro:
+          "SUPABASE_SECRET_KEY não configurado.",
       });
     }
 
@@ -447,21 +626,33 @@ export default async function handler(req, res) {
         scrapingBeeApiKey
       );
 
-    const $ = cheerio.load(html);
+    const $ =
+      cheerio.load(html);
 
     const titulos = [];
 
-    $("h2, h3, h4, h5").each(function () {
-      const titulo = limparTexto($(this).text());
+    $("h2, h3, h4, h5").each(
+      function () {
+        const titulo =
+          limparTexto(
+            $(this).text()
+          );
 
-      if (!/^TÉCNICO EM/i.test(titulo)) {
-        return;
-      }
+        if (
+          !/^TÉCNICO EM/i.test(
+            titulo
+          )
+        ) {
+          return;
+        }
 
-      if (!titulos.includes(titulo)) {
-        titulos.push(titulo);
+        if (
+          !titulos.includes(titulo)
+        ) {
+          titulos.push(titulo);
+        }
       }
-    });
+    );
 
     if (!titulos.length) {
       throw new Error(
@@ -469,130 +660,149 @@ export default async function handler(req, res) {
       );
     }
 
-    const textoPagina = limparTexto($("body").text());
+    const textoPagina =
+      limparTexto(
+        $("body").text()
+      );
 
     const cursos = [];
 
-    $("h2, h3, h4, h5").each(function () {
-      const elementoTitulo = this;
+    $("h2, h3, h4, h5").each(
+      function () {
+        const elementoTitulo =
+          this;
 
-      const titulo = limparTexto($(elementoTitulo).text());
+        const titulo =
+          limparTexto(
+            $(elementoTitulo).text()
+          );
 
-      if (!/^TÉCNICO EM/i.test(titulo)) {
-        return;
-      }
+        if (
+          !/^TÉCNICO EM/i.test(
+            titulo
+          )
+        ) {
+          return;
+        }
 
-      if (
-        cursos.some(
-          (curso) =>
-            normalizarTexto(curso.titulo) ===
-            normalizarTexto(titulo)
-        )
-      ) {
-        return;
-      }
+        if (
+          cursos.some(
+            (curso) =>
+              normalizarTexto(
+                curso.titulo
+              ) ===
+              normalizarTexto(
+                titulo
+              )
+          )
+        ) {
+          return;
+        }
 
-      const container =
-        encontrarContainerCurso(
-          $,
-          elementoTitulo
-        );
+        const container =
+          encontrarContainerCurso(
+            $,
+            elementoTitulo
+          );
 
-      const textoContainer =
-        limparTexto(container.text());
+        const textoContainer =
+          limparTexto(
+            container.text()
+          );
 
-      const blocoCurso =
-        obterBlocoDoCurso(
-          textoPagina,
-          titulo,
-          titulos
-        );
+        const blocoCurso =
+          obterBlocoDoCurso(
+            textoPagina,
+            titulo,
+            titulos
+          );
 
-      let descricao =
-        extrairDescricaoDoTexto(
-          textoContainer,
-          titulo
-        );
-
-      if (!descricao) {
-        descricao =
-          extrairDescricaoPorLinhas(
+        let descricao =
+          extrairDescricaoDoTexto(
             textoContainer,
             titulo
           );
-      }
 
-      if (!descricao) {
-        descricao =
-          extrairDescricaoDoTexto(
-            blocoCurso,
-            titulo
-          );
-      }
+        if (!descricao) {
+          descricao =
+            extrairDescricaoPorLinhas(
+              textoContainer,
+              titulo
+            );
+        }
 
-      if (!descricao) {
-        descricao =
-          extrairDescricaoPorLinhas(
-            blocoCurso,
-            titulo
-          );
-      }
+        if (!descricao) {
+          descricao =
+            extrairDescricaoDoTexto(
+              blocoCurso,
+              titulo
+            );
+        }
 
-      let inicio =
-        extrairInicio(
-          textoContainer
-        );
+        if (!descricao) {
+          descricao =
+            extrairDescricaoPorLinhas(
+              blocoCurso,
+              titulo
+            );
+        }
 
-      if (!inicio) {
-        inicio =
+        let inicio =
           extrairInicio(
-            blocoCurso
+            textoContainer
           );
-      }
 
-      let investimento =
-        extrairInvestimento(
-          textoContainer
-        );
+        if (!inicio) {
+          inicio =
+            extrairInicio(
+              blocoCurso
+            );
+        }
 
-      if (!investimento) {
-        investimento =
+        let investimento =
           extrairInvestimento(
+            textoContainer
+          );
+
+        if (!investimento) {
+          investimento =
+            extrairInvestimento(
+              blocoCurso
+            );
+        }
+
+        const unidade =
+          extrairUnidade(
+            textoContainer
+          ) ||
+          extrairUnidade(
             blocoCurso
           );
+
+        const imagem =
+          extrairImagem(
+            $,
+            container
+          );
+
+        const url =
+          extrairUrl(
+            $,
+            container
+          );
+
+        cursos.push({
+          titulo,
+          tipo: "Curso Técnico",
+          unidade,
+          descricao,
+          inicio,
+          investimento,
+          imagem,
+          url,
+        });
       }
-
-      const unidade =
-        extrairUnidade(
-          textoContainer
-        ) ||
-        extrairUnidade(
-          blocoCurso
-        );
-
-      const imagem =
-        extrairImagem(
-          $,
-          container
-        );
-
-      const url =
-        extrairUrl(
-          $,
-          container
-        );
-
-      cursos.push({
-        titulo,
-        tipo: "Curso Técnico",
-        unidade,
-        descricao,
-        inicio,
-        investimento,
-        imagem,
-        url,
-      });
-    });
+    );
 
     if (!cursos.length) {
       throw new Error(
@@ -602,16 +812,21 @@ export default async function handler(req, res) {
 
     const catalogo = {
       id: ID_CATALOGO,
+
       filtros: {
         modalidade:
           "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+
         unidades: [
           "POÇO",
           "DISTRITO INDUSTRIAL",
         ],
+
         url: URL_SENAI,
       },
+
       cursos,
+
       atualizado_em:
         new Date().toISOString(),
     };
@@ -621,24 +836,34 @@ export default async function handler(req, res) {
         `${supabaseUrl}/rest/v1/catalogos_cursos?on_conflict=id`,
         {
           method: "POST",
+
           headers: {
-            apikey: supabaseSecretKey,
+            apikey:
+              supabaseSecretKey,
+
             Authorization:
               `Bearer ${supabaseSecretKey}`,
+
             "Content-Type":
               "application/json",
+
             Prefer:
               "resolution=merge-duplicates,return=representation",
           },
+
           body:
-            JSON.stringify(catalogo),
+            JSON.stringify(
+              catalogo
+            ),
         }
       );
 
     const respostaSupabaseTexto =
       await respostaSupabase.text();
 
-    if (!respostaSupabase.ok) {
+    if (
+      !respostaSupabase.ok
+    ) {
       throw new Error(
         `Supabase retornou HTTP ${respostaSupabase.status}: ${respostaSupabaseTexto}`
       );
