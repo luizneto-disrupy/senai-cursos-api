@@ -2,11 +2,25 @@ const cheerio = require("cheerio");
 
 module.exports = async function handler(req, res) {
 
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400"
-);
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    "*"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, OPTIONS"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type"
+  );
+
+  res.setHeader(
+    "Cache-Control",
+    "s-maxage=3600, stale-while-revalidate=86400"
+  );
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -21,527 +35,196 @@ module.exports = async function handler(req, res) {
 
   try {
 
-    const token = process.env.BROWSERLESS_TOKEN;
+    /*
+     * Variáveis do Supabase
+     */
 
-    if (!token) {
+    const supabaseUrl =
+      process.env.SUPABASE_URL;
+
+    const supabaseSecretKey =
+      process.env.SUPABASE_SECRET_KEY;
+
+    if (!supabaseUrl) {
+
       return res.status(500).json({
         sucesso: false,
-        erro: "BROWSERLESS_TOKEN não configurado no Vercel"
+        erro:
+          "SUPABASE_URL não configurado no Vercel"
       });
+
     }
 
-    const params = new URLSearchParams();
+    if (!supabaseSecretKey) {
 
-    params.append(
-      "modality[]",
-      "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO"
-    );
+      return res.status(500).json({
+        sucesso: false,
+        erro:
+          "SUPABASE_SECRET_KEY não configurado no Vercel"
+      });
 
-    params.append(
-      "unit[]",
-      "POÇO"
-    );
+    }
 
-    params.append(
-      "unit[]",
-      "DISTRITO INDUSTRIAL"
-    );
+    /*
+     * URL da API REST do Supabase
+     */
 
-    const url =
-      "https://al.senai.br/cursos/?" +
-      params.toString();
+    const baseSupabaseUrl =
+      supabaseUrl.replace(
+        /\/$/,
+        ""
+      );
 
-    const browserlessUrl =
-      "https://production-sfo.browserless.io/unblock" +
-      "?token=" +
-      encodeURIComponent(token) +
-      "&proxy=residential" +
-      "&proxyCountry=br";
+    const endpoint =
+      baseSupabaseUrl +
+      "/rest/v1/catalogos_cursos" +
+      "?id=eq.senai_tecnicos" +
+      "&select=id,filtros,cursos,atualizado_em";
 
-    const resposta = await fetch(browserlessUrl, {
+    /*
+     * Consulta o catálogo salvo
+     */
 
-      method: "POST",
+    const resposta =
+      await fetch(
+        endpoint,
+        {
+          method: "GET",
 
-      headers: {
-        "Content-Type": "application/json"
-      },
+          headers: {
+            apikey:
+              supabaseSecretKey,
 
-      body: JSON.stringify({
-        url: url,
-        content: true,
-        cookies: false,
-        screenshot: false,
-        browserWSEndpoint: false,
-        waitForTimeout: 5000
-      })
+            Authorization:
+              `Bearer ${supabaseSecretKey}`,
 
-    });
+            "Content-Type":
+              "application/json"
+          }
+        }
+      );
 
-    const dados = await resposta.json();
+    /*
+     * Lemos como texto primeiro para
+     * evitar erro em caso de resposta inesperada
+     */
+
+    const texto =
+      await resposta.text();
 
     if (!resposta.ok) {
+
       return res.status(500).json({
+
         sucesso: false,
-        erro: "Browserless retornou erro",
-        status: resposta.status,
-        detalhe: dados
+
+        erro:
+          "Erro ao consultar o Supabase",
+
+        status:
+          resposta.status,
+
+        detalhe:
+          texto.substring(
+            0,
+            2000
+          )
+
       });
+
     }
 
-    const html = dados.content || "";
+    let dados;
 
-    if (!html) {
+    try {
+
+      dados =
+        JSON.parse(texto);
+
+    } catch {
+
       return res.status(500).json({
+
         sucesso: false,
-        erro: "HTML não encontrado na resposta do Browserless"
+
+        erro:
+          "Supabase não retornou JSON",
+
+        detalhe:
+          texto.substring(
+            0,
+            2000
+          )
+
       });
-    }
-
-    const $ = cheerio.load(html);
-
-    const cursos = [];
-    const cursosProcessados = new Set();
-
-    function limparTexto(valor) {
-
-      return String(valor || "")
-        .replace(/\s+/g, " ")
-        .trim();
 
     }
 
-    function normalizarSlug(titulo) {
+    /*
+     * A API retorna um array.
+     */
 
-      return titulo
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim()
-        .replace(/\s+/g, "-");
+    if (
+      !Array.isArray(dados) ||
+      dados.length === 0
+    ) {
 
-    }
+      return res.status(404).json({
 
-    function encontrarContainerDados(elemento) {
+        sucesso: false,
 
-      let atual = $(elemento);
+        erro:
+          "Catálogo de cursos não encontrado no Supabase"
 
-      for (let nivel = 0; nivel < 12; nivel++) {
-
-        atual = atual.parent();
-
-        if (!atual || !atual.length) {
-          break;
-        }
-
-        const texto =
-          limparTexto(atual.text());
-
-        const temInicio =
-          /Início\s*:/i.test(texto);
-
-        const temInvestimento =
-          /Investimento\s*:/i.test(texto);
-
-        if (
-          temInicio &&
-          temInvestimento &&
-          texto.length > 80 &&
-          texto.length < 2500
-        ) {
-
-          return atual;
-
-        }
-
-      }
-
-      return $(elemento);
+      });
 
     }
 
-    function encontrarContainerVisual(elemento) {
+    const catalogo =
+      dados[0];
 
-      let atual = $(elemento);
+    const cursos =
+      Array.isArray(
+        catalogo.cursos
+      )
+        ? catalogo.cursos
+        : [];
 
-      for (let nivel = 0; nivel < 12; nivel++) {
+    /*
+     * Validação de segurança.
+     */
 
-        atual = atual.parent();
+    if (
+      cursos.length === 0
+    ) {
 
-        if (!atual || !atual.length) {
-          break;
-        }
+      return res.status(404).json({
 
-        const texto =
-          limparTexto(atual.text());
+        sucesso: false,
 
-        const temCursoTecnico =
-          /Curso Técnico/i.test(texto);
+        erro:
+          "O catálogo existe, mas não possui cursos"
 
-        const temUnidade =
-          /POÇO|DISTRITO INDUSTRIAL/i.test(texto);
-
-        const possuiImagem =
-          atual.find("img").length > 0;
-
-        if (
-          temCursoTecnico &&
-          temUnidade &&
-          possuiImagem
-        ) {
-
-          return atual;
-
-        }
-
-      }
-
-      return null;
+      });
 
     }
 
-    function encontrarUnidade(container) {
-
-      if (!container || !container.length) {
-        return null;
-      }
-
-      const texto =
-        limparTexto(
-          container.text()
-        ).toUpperCase();
-
-      const unidades = [];
-
-      if (
-        texto.includes("POÇO")
-      ) {
-        unidades.push("POÇO");
-      }
-
-      if (
-        texto.includes("DISTRITO INDUSTRIAL")
-      ) {
-        unidades.push("DISTRITO INDUSTRIAL");
-      }
-
-      return unidades.length
-        ? unidades.join(", ")
-        : null;
-
-    }
-
-    function encontrarImagem(container) {
-
-      if (!container || !container.length) {
-        return null;
-      }
-
-      let imagem = null;
-
-      container.find("img").each(
-        (i, elemento) => {
-
-          if (imagem) {
-            return;
-          }
-
-          imagem =
-            $(elemento).attr("data-src") ||
-            $(elemento).attr("data-lazy-src") ||
-            $(elemento).attr("data-original") ||
-            $(elemento).attr("src") ||
-            null;
-
-        }
-      );
-
-      if (!imagem) {
-
-        container.find("source").each(
-          (i, elemento) => {
-
-            if (imagem) {
-              return;
-            }
-
-            const srcset =
-              $(elemento).attr("srcset") ||
-              $(elemento).attr("data-srcset") ||
-              null;
-
-            if (srcset) {
-
-              imagem =
-                srcset
-                  .split(",")[0]
-                  .trim()
-                  .split(" ")[0];
-
-            }
-
-          }
-        );
-
-      }
-
-      if (!imagem) {
-        return null;
-      }
-
-      if (
-        imagem.startsWith("//")
-      ) {
-        return "https:" + imagem;
-      }
-
-      if (
-        imagem.startsWith("/")
-      ) {
-        return "https://al.senai.br" + imagem;
-      }
-
-      return imagem;
-
-    }
-
-    function encontrarUrl(container, titulo) {
-
-      let urlCurso = null;
-
-      if (container && container.length) {
-
-        container.find("a[href]").each(
-          (i, elemento) => {
-
-            if (urlCurso) {
-              return;
-            }
-
-            const href =
-              $(elemento).attr("href");
-
-            if (
-              href &&
-              href.includes("/curso/")
-            ) {
-
-              try {
-
-                urlCurso =
-                  new URL(
-                    href,
-                    "https://al.senai.br"
-                  ).href;
-
-              } catch {}
-
-            }
-
-          }
-        );
-
-      }
-
-      if (urlCurso) {
-        return urlCurso;
-      }
-
-      return (
-        "https://al.senai.br/curso/" +
-        normalizarSlug(titulo) +
-        "/"
-      );
-
-    }
-
-    $("h2, h3, h4, h5").each(
-      (index, elemento) => {
-
-        const titulo =
-          limparTexto(
-            $(elemento).text()
-          );
-
-        if (!titulo) {
-          return;
-        }
-
-        if (
-          !titulo
-            .toUpperCase()
-            .startsWith("TÉCNICO EM")
-        ) {
-          return;
-        }
-
-        if (
-          cursosProcessados.has(titulo)
-        ) {
-          return;
-        }
-
-        const containerDados =
-          encontrarContainerDados(
-            elemento
-          );
-
-        const containerVisual =
-          encontrarContainerVisual(
-            elemento
-          );
-
-        const textoDados =
-          limparTexto(
-            containerDados.text()
-          );
-
-        const textoVisual =
-          containerVisual
-            ? limparTexto(
-                containerVisual.text()
-              )
-            : "";
-
-        const textoCompleto =
-          limparTexto(
-            textoVisual + " " + textoDados
-          );
-
-        const inicioMatch =
-          textoCompleto.match(
-            /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
-          );
-
-        const inicio =
-          inicioMatch
-            ? inicioMatch[1]
-            : null;
-
-        const investimentoMatch =
-          textoCompleto.match(
-            /Investimento\s*:\s*([\s\S]*?)(?=Confira|$)/i
-          );
-
-        const investimento =
-          investimentoMatch
-            ? limparTexto(
-                investimentoMatch[1]
-              )
-            : null;
-
-        let descricao = "";
-
-        containerDados.find("p").each(
-          (i, elementoP) => {
-
-            const textoP =
-              limparTexto(
-                $(elementoP).text()
-              );
-
-            if (!textoP) {
-              return;
-            }
-
-            if (
-              /Início\s*:/i.test(textoP)
-            ) {
-              return;
-            }
-
-            if (
-              /Investimento\s*:/i.test(textoP)
-            ) {
-              return;
-            }
-
-            if (
-              /Confira/i.test(textoP)
-            ) {
-              return;
-            }
-
-            if (
-              textoP.length >
-              descricao.length
-            ) {
-              descricao = textoP;
-            }
-
-          }
-        );
-
-        const unidade =
-          encontrarUnidade(
-            containerVisual ||
-            containerDados
-          );
-
-        const imagem =
-          encontrarImagem(
-            containerVisual
-          );
-
-        const urlCurso =
-          encontrarUrl(
-            containerVisual ||
-            containerDados,
-            titulo
-          );
-
-        cursosProcessados.add(titulo);
-
-        cursos.push({
-
-          titulo: titulo,
-
-          tipo: "Curso Técnico",
-
-          modalidade:
-            "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
-
-          unidade:
-            unidade,
-
-          descricao:
-            descricao || null,
-
-          inicio:
-            inicio,
-
-          investimento:
-            investimento,
-
-          imagem:
-            imagem,
-
-          url:
-            urlCurso
-
-        });
-
-      }
-    );
+    /*
+     * Retorno para o RD Station
+     */
 
     return res.status(200).json({
 
       sucesso: true,
 
-      filtros: {
-
-        modalidade:
-          "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
-
-        unidades: [
-          "POÇO",
-          "DISTRITO INDUSTRIAL"
-        ]
-
-      },
+      filtros:
+        catalogo.filtros,
 
       total:
         cursos.length,
+
+      atualizado_em:
+        catalogo.atualizado_em,
 
       cursos:
         cursos
@@ -550,14 +233,17 @@ module.exports = async function handler(req, res) {
 
   } catch (erro) {
 
-    console.error(erro);
+    console.error(
+      "ERRO AO CONSULTAR CURSOS:",
+      erro
+    );
 
     return res.status(500).json({
 
       sucesso: false,
 
       erro:
-        "Não foi possível consultar os cursos do SENAI.",
+        "Não foi possível consultar o catálogo",
 
       detalhe:
         erro.message
