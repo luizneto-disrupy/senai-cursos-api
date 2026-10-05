@@ -9,8 +9,8 @@ function limparTexto(texto) {
   return String(texto || "")
     .replace(/\u00a0/g, " ")
     .replace(/\r/g, "")
-    .replace(/\n+/g, "\n")
     .replace(/[ \t]+/g, " ")
+    .replace(/\n+/g, "\n")
     .trim();
 }
 
@@ -28,22 +28,19 @@ function escaparRegex(texto) {
 function extrairInvestimento(texto) {
   const valor = limparTexto(texto);
 
-  const padraoParcelamento =
-    /\b\d+\s*[xX]\s*de\s*R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}\b/i;
+  const padroes = [
+    /\b\d+\s*[xX]\s*de\s*R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}\b/i,
+    /\b\d+\s*[xX]\s*de\s*R\$\s*\d+(?:,\d{2})?\b/i,
+    /\bR\$\s*\d{1,3}(?:\.\d{3})*,\d{2}\b/i,
+    /\bR\$\s*\d+(?:,\d{2})?\b/i,
+  ];
 
-  const padraoValor =
-    /\bR\$\s*\d{1,3}(?:\.\d{3})*,\d{2}\b/i;
+  for (const padrao of padroes) {
+    const match = valor.match(padrao);
 
-  const parcelamento = valor.match(padraoParcelamento);
-
-  if (parcelamento) {
-    return parcelamento[0];
-  }
-
-  const apenasValor = valor.match(padraoValor);
-
-  if (apenasValor) {
-    return apenasValor[0];
+    if (match) {
+      return limparTexto(match[0]);
+    }
   }
 
   return null;
@@ -59,140 +56,29 @@ function extrairInicio(texto) {
   return match ? match[1] : null;
 }
 
-function extrairDescricao(texto, titulo) {
-  const valor = limparTexto(texto);
-
-  if (!valor) {
-    return null;
-  }
-
-  const tituloNormalizado = normalizarTexto(titulo);
-
-  const linhas = valor
-    .split("\n")
-    .map((linha) => limparTexto(linha))
-    .filter(Boolean);
-
-  const linhasSemDuplicadas = [];
-
-  for (const linha of linhas) {
-    if (
-      linhasSemDuplicadas.length === 0 ||
-      normalizarTexto(linha) !==
-        normalizarTexto(
-          linhasSemDuplicadas[linhasSemDuplicadas.length - 1]
-        )
-    ) {
-      linhasSemDuplicadas.push(linha);
-    }
-  }
-
-  let indiceTitulo = linhasSemDuplicadas.findIndex(
-    (linha) => normalizarTexto(linha) === tituloNormalizado
-  );
-
-  if (indiceTitulo === -1) {
-    indiceTitulo = linhasSemDuplicadas.findIndex((linha) =>
-      normalizarTexto(linha).includes(tituloNormalizado)
-    );
-  }
-
-  if (indiceTitulo === -1) {
-    return null;
-  }
-
-  const depoisTitulo = linhasSemDuplicadas.slice(indiceTitulo + 1);
-
-  const ignorar = [
-    "curso técnico",
-    "curso tecnico",
-    "investimento:",
-    "confira",
-  ];
-
-  const candidatos = [];
-
-  for (const linha of depoisTitulo) {
-    const normalizada = normalizarTexto(linha);
-
-    if (!normalizada) {
-      continue;
-    }
-
-    if (
-      normalizada === "inicio:" ||
-      normalizada.startsWith("inicio:")
-    ) {
-      break;
-    }
-
-    if (
-      normalizada === "investimento:" ||
-      normalizada.startsWith("investimento:")
-    ) {
-      break;
-    }
-
-    if (
-      ignorar.includes(normalizada) ||
-      normalizada.startsWith("unidade:")
-    ) {
-      continue;
-    }
-
-    if (/^\d+\s*[xX]\s*de\s*R\$/i.test(linha)) {
-      continue;
-    }
-
-    if (/^R\$\s*\d/i.test(linha)) {
-      continue;
-    }
-
-    if (normalizada === "poço" || normalizada === "distrito industrial") {
-      continue;
-    }
-
-    if (
-      normalizada === "poço distrito industrial" ||
-      normalizada === "distrito industrial poço"
-    ) {
-      continue;
-    }
-
-    candidatos.push(linha);
-  }
-
-  if (candidatos.length > 0) {
-    const descricao = limparTexto(candidatos.join(" "));
-
-    if (descricao.length >= 15) {
-      return descricao;
-    }
-  }
-
-  return null;
-}
-
 function encontrarContainerCurso($, elementoTitulo) {
   let atual = $(elementoTitulo);
 
-  for (let nivel = 0; nivel < 12; nivel++) {
+  for (let nivel = 0; nivel < 15; nivel++) {
     const texto = limparTexto(atual.text());
 
-    const temTitulo = normalizarTexto(texto).includes(
-      normalizarTexto($(elementoTitulo).text())
+    const normalizado = normalizarTexto(texto);
+
+    const tituloNormalizado = normalizarTexto(
+      $(elementoTitulo).text()
     );
 
-    const temInicio = /In[ií]cio\s*:/i.test(texto);
-
-    const temInvestimento = /Investimento\s*:/i.test(texto);
-
+    const temTitulo = normalizado.includes(tituloNormalizado);
+    const temInvestimento = /investimento\s*:/i.test(texto);
     const temConfira = /Confira/i.test(texto);
+    const temInicio = /In[ií]cio\s*:/i.test(texto);
 
     if (
       nivel >= 1 &&
       temTitulo &&
-      (temInicio || temInvestimento || temConfira)
+      temInvestimento &&
+      temInicio &&
+      temConfira
     ) {
       return atual;
     }
@@ -207,49 +93,144 @@ function encontrarContainerCurso($, elementoTitulo) {
   return $(elementoTitulo).parent();
 }
 
-function extrairUnidade(texto) {
+function extrairDescricaoDoTexto(texto, titulo) {
   const valor = limparTexto(texto);
 
-  const unidadesEncontradas = [];
-
-  if (/POÇO/i.test(valor)) {
-    unidadesEncontradas.push("POÇO");
+  if (!valor) {
+    return null;
   }
 
-  if (/DISTRITO INDUSTRIAL/i.test(valor)) {
-    unidadesEncontradas.push("DISTRITO INDUSTRIAL");
+  const tituloRegex = escaparRegex(titulo);
+
+  const padrao = new RegExp(
+    tituloRegex +
+      "[\\s\\S]*?(?:Curso Técnico)?[\\s\\S]*?" +
+      "(?:POÇO|DISTRITO INDUSTRIAL)?\\s*" +
+      "([\\s\\S]*?)" +
+      "In[ií]cio\\s*:",
+    "i"
+  );
+
+  const match = valor.match(padrao);
+
+  if (match && match[1]) {
+    let descricao = limparTexto(match[1]);
+
+    descricao = descricao
+      .replace(/^Curso Técnico\s*/i, "")
+      .replace(/^POÇO\s*/i, "")
+      .replace(/^DISTRITO INDUSTRIAL\s*/i, "")
+      .replace(/^POÇO\s+DISTRITO INDUSTRIAL\s*/i, "")
+      .replace(/^DISTRITO INDUSTRIAL\s+POÇO\s*/i, "")
+      .trim();
+
+    if (descricao.length >= 15) {
+      return descricao;
+    }
   }
 
-  return unidadesEncontradas.join(" ") || null;
+  return null;
+}
+
+function extrairDescricaoPorLinhas(texto, titulo) {
+  const linhas = limparTexto(texto)
+    .split("\n")
+    .map((linha) => limparTexto(linha))
+    .filter(Boolean);
+
+  if (!linhas.length) {
+    return null;
+  }
+
+  const tituloNormalizado = normalizarTexto(titulo);
+
+  let indiceTitulo = linhas.findIndex(
+    (linha) => normalizarTexto(linha) === tituloNormalizado
+  );
+
+  if (indiceTitulo === -1) {
+    indiceTitulo = linhas.findIndex((linha) =>
+      normalizarTexto(linha).includes(tituloNormalizado)
+    );
+  }
+
+  if (indiceTitulo === -1) {
+    return null;
+  }
+
+  const candidatos = [];
+
+  for (
+    let indice = indiceTitulo + 1;
+    indice < linhas.length;
+    indice++
+  ) {
+    const linha = linhas[indice];
+    const normalizada = normalizarTexto(linha);
+
+    if (
+      normalizada.startsWith("inicio:") ||
+      normalizada.startsWith("inicio :")
+    ) {
+      break;
+    }
+
+    if (
+      normalizada.startsWith("investimento:") ||
+      normalizada.startsWith("investimento :")
+    ) {
+      break;
+    }
+
+    if (
+      normalizada === "curso tecnico" ||
+      normalizada === "curso técnico"
+    ) {
+      continue;
+    }
+
+    if (
+      normalizada === "poco" ||
+      normalizada === "distrito industrial" ||
+      normalizada === "poco distrito industrial" ||
+      normalizada === "distrito industrial poco"
+    ) {
+      continue;
+    }
+
+    if (/^confira$/i.test(linha)) {
+      continue;
+    }
+
+    if (extrairInvestimento(linha)) {
+      continue;
+    }
+
+    candidatos.push(linha);
+  }
+
+  if (!candidatos.length) {
+    return null;
+  }
+
+  const descricao = limparTexto(candidatos.join(" "));
+
+  return descricao.length >= 15 ? descricao : null;
 }
 
 function extrairImagem($, container) {
-  let src = null;
-
   const imagem = container.find("img").first();
 
-  if (imagem.length) {
-    src =
-      imagem.attr("src") ||
-      imagem.attr("data-src") ||
-      imagem.attr("data-lazy-src") ||
-      null;
+  if (!imagem.length) {
+    return null;
   }
 
-  if (!src) {
-    const imagemPrincipal = container
-      .closest("article")
-      .find("img")
-      .first();
-
-    if (imagemPrincipal.length) {
-      src =
-        imagemPrincipal.attr("src") ||
-        imagemPrincipal.attr("data-src") ||
-        imagemPrincipal.attr("data-lazy-src") ||
-        null;
-    }
-  }
+  let src =
+    imagem.attr("src") ||
+    imagem.attr("data-src") ||
+    imagem.attr("data-lazy-src") ||
+    imagem.attr("data-original") ||
+    null;
 
   if (!src) {
     return null;
@@ -267,12 +248,15 @@ function extrairImagem($, container) {
 }
 
 function extrairUrl($, container) {
-  const link = container.find("a").filter(function () {
-    return /Confira/i.test(limparTexto($(this).text()));
-  }).first();
+  const confira = container
+    .find("a[href]")
+    .filter(function () {
+      return /Confira/i.test(limparTexto($(this).text()));
+    })
+    .first();
 
-  if (link.length) {
-    const href = link.attr("href");
+  if (confira.length) {
+    const href = confira.attr("href");
 
     if (href) {
       if (href.startsWith("/")) {
@@ -300,59 +284,87 @@ function extrairUrl($, container) {
   return null;
 }
 
-function coletarTextoSequencial($, elementoTitulo) {
-  const bodyText = limparTexto($("body").text());
+function extrairUnidade(texto) {
+  const valor = limparTexto(texto);
 
-  return bodyText;
+  const temPoco = /POÇO/i.test(valor);
+  const temDistrito = /DISTRITO INDUSTRIAL/i.test(valor);
+
+  if (temPoco && temDistrito) {
+    return "POÇO DISTRITO INDUSTRIAL";
+  }
+
+  if (temPoco) {
+    return "POÇO";
+  }
+
+  if (temDistrito) {
+    return "DISTRITO INDUSTRIAL";
+  }
+
+  return null;
 }
 
-function extrairBlocoPorTitulo(textoPagina, titulo, titulos) {
-  const textoNormalizado = normalizarTexto(textoPagina);
+function obterBlocoDoCurso(textoPagina, titulo, titulos) {
+  const linhas = limparTexto(textoPagina)
+    .split("\n")
+    .map((linha) => limparTexto(linha))
+    .filter(Boolean);
 
   const tituloNormalizado = normalizarTexto(titulo);
 
-  const inicio = textoNormalizado.indexOf(tituloNormalizado);
-
-  if (inicio === -1) {
-    return null;
-  }
-
-  let fim = textoPagina.length;
-
-  const indiceAtual = titulos.findIndex(
-    (item) => normalizarTexto(item) === tituloNormalizado
+  let indiceAtual = linhas.findIndex(
+    (linha) => normalizarTexto(linha) === tituloNormalizado
   );
 
-  if (indiceAtual !== -1) {
-    for (let i = indiceAtual + 1; i < titulos.length; i++) {
-      const proximoTitulo = normalizarTexto(titulos[i]);
-      const posicaoProximo = textoNormalizado.indexOf(
-        proximoTitulo,
-        inicio + titulo.length
-      );
-
-      if (posicaoProximo !== -1) {
-        fim = posicaoProximo;
-        break;
-      }
-    }
+  if (indiceAtual === -1) {
+    indiceAtual = linhas.findIndex((linha) =>
+      normalizarTexto(linha).includes(tituloNormalizado)
+    );
   }
 
-  return limparTexto(textoPagina.slice(inicio, fim));
+  if (indiceAtual === -1) {
+    return "";
+  }
+
+  const linhasBloco = [linhas[indiceAtual]];
+
+  const titulosNormalizados = titulos.map((item) =>
+    normalizarTexto(item)
+  );
+
+  for (
+    let indice = indiceAtual + 1;
+    indice < linhas.length;
+    indice++
+  ) {
+    const linhaNormalizada = normalizarTexto(linhas[indice]);
+
+    if (
+      titulosNormalizados.includes(linhaNormalizada) &&
+      linhaNormalizada !== tituloNormalizado
+    ) {
+      break;
+    }
+
+    linhasBloco.push(linhas[indice]);
+  }
+
+  return limparTexto(linhasBloco.join("\n"));
 }
 
 async function obterHtmlComScrapingBee(apiKey) {
   const parametros = new URLSearchParams({
     api_key: apiKey,
     url: URL_SENAI,
-    render_js: "true",
-    country_code: "br",
-    wait_for: "h3",
     mode: "auto",
     max_cost: "25",
+    country_code: "br",
+    wait_for: "h3",
   });
 
-  const url = `https://app.scrapingbee.com/api/v1/?${parametros.toString()}`;
+  const url =
+    `https://app.scrapingbee.com/api/v1/?${parametros.toString()}`;
 
   const resposta = await fetch(url);
 
@@ -365,7 +377,9 @@ async function obterHtmlComScrapingBee(apiKey) {
   }
 
   if (!html || html.length < 1000) {
-    throw new Error("ScrapingBee retornou HTML vazio ou incompleto.");
+    throw new Error(
+      "ScrapingBee retornou HTML vazio ou incompleto."
+    );
   }
 
   return html;
@@ -378,7 +392,9 @@ export default async function handler(req, res) {
       req.headers.Authorization ||
       "";
 
-    const tokenRecebido = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const tokenRecebido = authHeader
+      .replace(/^Bearer\s+/i, "")
+      .trim();
 
     const cronSecret = process.env.CRON_SECRET;
 
@@ -396,9 +412,14 @@ export default async function handler(req, res) {
       });
     }
 
-    const scrapingBeeApiKey = process.env.SCRAPINGBEE_API_KEY;
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+    const scrapingBeeApiKey =
+      process.env.SCRAPINGBEE_API_KEY;
+
+    const supabaseUrl =
+      process.env.SUPABASE_URL;
+
+    const supabaseSecretKey =
+      process.env.SUPABASE_SECRET_KEY;
 
     if (!scrapingBeeApiKey) {
       return res.status(500).json({
@@ -421,31 +442,34 @@ export default async function handler(req, res) {
       });
     }
 
-    const html = await obterHtmlComScrapingBee(scrapingBeeApiKey);
+    const html =
+      await obterHtmlComScrapingBee(
+        scrapingBeeApiKey
+      );
 
     const $ = cheerio.load(html);
 
     const titulos = [];
 
     $("h2, h3, h4, h5").each(function () {
-      const texto = limparTexto($(this).text());
+      const titulo = limparTexto($(this).text());
 
-      if (!/^TÉCNICO EM/i.test(texto)) {
+      if (!/^TÉCNICO EM/i.test(titulo)) {
         return;
       }
 
-      if (!titulos.includes(texto)) {
-        titulos.push(texto);
+      if (!titulos.includes(titulo)) {
+        titulos.push(titulo);
       }
     });
 
-    if (titulos.length === 0) {
+    if (!titulos.length) {
       throw new Error(
         "Nenhum curso técnico foi encontrado no HTML retornado pelo ScrapingBee."
       );
     }
 
-    const textoPagina = coletarTextoSequencial($);
+    const textoPagina = limparTexto($("body").text());
 
     const cursos = [];
 
@@ -460,66 +484,103 @@ export default async function handler(req, res) {
 
       if (
         cursos.some(
-          (curso) => normalizarTexto(curso.titulo) === normalizarTexto(titulo)
+          (curso) =>
+            normalizarTexto(curso.titulo) ===
+            normalizarTexto(titulo)
         )
       ) {
         return;
       }
 
-      const container = encontrarContainerCurso($, elementoTitulo);
-
-      const textoContainer = limparTexto(container.text());
-
-      const blocoSequencial =
-        extrairBlocoPorTitulo(textoPagina, titulo, titulos) || "";
-
-      const textoBusca = limparTexto(
-        `${textoContainer}\n${blocoSequencial}`
-      );
-
-      let descricao = extrairDescricao(textoContainer, titulo);
-
-      if (!descricao) {
-        descricao = extrairDescricao(blocoSequencial, titulo);
-      }
-
-      let inicio = extrairInicio(textoContainer);
-
-      if (!inicio) {
-        inicio = extrairInicio(blocoSequencial);
-      }
-
-      let investimento = extrairInvestimento(textoContainer);
-
-      if (!investimento) {
-        investimento = extrairInvestimento(blocoSequencial);
-      }
-
-      if (!investimento) {
-        const posicaoInvestimento = textoBusca.search(
-          /Investimento\s*:/i
+      const container =
+        encontrarContainerCurso(
+          $,
+          elementoTitulo
         );
 
-        if (posicaoInvestimento !== -1) {
-          const trechoInvestimento = textoBusca.slice(
-            posicaoInvestimento,
-            posicaoInvestimento + 200
-          );
+      const textoContainer =
+        limparTexto(container.text());
 
-          investimento = extrairInvestimento(trechoInvestimento);
-        }
+      const blocoCurso =
+        obterBlocoDoCurso(
+          textoPagina,
+          titulo,
+          titulos
+        );
+
+      let descricao =
+        extrairDescricaoDoTexto(
+          textoContainer,
+          titulo
+        );
+
+      if (!descricao) {
+        descricao =
+          extrairDescricaoPorLinhas(
+            textoContainer,
+            titulo
+          );
       }
 
-      const unidade = extrairUnidade(textoContainer) ||
-        extrairUnidade(blocoSequencial);
+      if (!descricao) {
+        descricao =
+          extrairDescricaoDoTexto(
+            blocoCurso,
+            titulo
+          );
+      }
+
+      if (!descricao) {
+        descricao =
+          extrairDescricaoPorLinhas(
+            blocoCurso,
+            titulo
+          );
+      }
+
+      let inicio =
+        extrairInicio(
+          textoContainer
+        );
+
+      if (!inicio) {
+        inicio =
+          extrairInicio(
+            blocoCurso
+          );
+      }
+
+      let investimento =
+        extrairInvestimento(
+          textoContainer
+        );
+
+      if (!investimento) {
+        investimento =
+          extrairInvestimento(
+            blocoCurso
+          );
+      }
+
+      const unidade =
+        extrairUnidade(
+          textoContainer
+        ) ||
+        extrairUnidade(
+          blocoCurso
+        );
 
       const imagem =
-        extrairImagem($, container) ||
-        null;
+        extrairImagem(
+          $,
+          container
+        );
 
       const url =
-        extrairUrl($, container) ||
-        null;
+        extrairUrl(
+          $,
+          container
+        );
 
       cursos.push({
         titulo,
@@ -533,36 +594,49 @@ export default async function handler(req, res) {
       });
     });
 
-    if (cursos.length === 0) {
-      throw new Error("Nenhum curso foi extraído.");
+    if (!cursos.length) {
+      throw new Error(
+        "Nenhum curso foi extraído."
+      );
     }
 
     const catalogo = {
       id: ID_CATALOGO,
       filtros: {
-        modalidade: "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
-        unidades: ["POÇO", "DISTRITO INDUSTRIAL"],
+        modalidade:
+          "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+        unidades: [
+          "POÇO",
+          "DISTRITO INDUSTRIAL",
+        ],
         url: URL_SENAI,
       },
       cursos,
-      atualizado_em: new Date().toISOString(),
+      atualizado_em:
+        new Date().toISOString(),
     };
 
-    const respostaSupabase = await fetch(
-      `${supabaseUrl}/rest/v1/catalogos_cursos?on_conflict=id`,
-      {
-        method: "POST",
-        headers: {
-          apikey: supabaseSecretKey,
-          Authorization: `Bearer ${supabaseSecretKey}`,
-          "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates,return=representation",
-        },
-        body: JSON.stringify(catalogo),
-      }
-    );
+    const respostaSupabase =
+      await fetch(
+        `${supabaseUrl}/rest/v1/catalogos_cursos?on_conflict=id`,
+        {
+          method: "POST",
+          headers: {
+            apikey: supabaseSecretKey,
+            Authorization:
+              `Bearer ${supabaseSecretKey}`,
+            "Content-Type":
+              "application/json",
+            Prefer:
+              "resolution=merge-duplicates,return=representation",
+          },
+          body:
+            JSON.stringify(catalogo),
+        }
+      );
 
-    const respostaSupabaseTexto = await respostaSupabase.text();
+    const respostaSupabaseTexto =
+      await respostaSupabase.text();
 
     if (!respostaSupabase.ok) {
       throw new Error(
@@ -572,17 +646,24 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       sucesso: true,
-      mensagem: "Catálogo atualizado com sucesso",
+      mensagem:
+        "Catálogo atualizado com sucesso",
       total: cursos.length,
-      atualizado_em: catalogo.atualizado_em,
+      atualizado_em:
+        catalogo.atualizado_em,
       cursos,
     });
   } catch (erro) {
-    console.error("Erro ao atualizar catálogo:", erro);
+    console.error(
+      "Erro ao atualizar catálogo:",
+      erro
+    );
 
     return res.status(500).json({
       sucesso: false,
-      erro: erro.message || "Erro interno ao atualizar catálogo.",
+      erro:
+        erro.message ||
+        "Erro interno ao atualizar catálogo.",
     });
   }
 }
