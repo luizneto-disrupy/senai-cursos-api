@@ -102,7 +102,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 3. FILTROS
+     * 3. URL FILTRADA DO SENAI
      * ==========================================
      */
 
@@ -130,7 +130,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 4. SCRAPINGBEE
+     * 4. CONSULTA SCRAPINGBEE
      * ==========================================
      */
 
@@ -219,27 +219,17 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 5. CHEERIO
+     * 5. PROCESSAMENTO DO HTML
      * ==========================================
      */
 
     const $ =
       cheerio.load(html);
 
-    /*
-     * Texto completo da página.
-     */
+    const cursos = [];
 
-    const textoPagina =
-      limparTexto(
-        $("body").text()
-      );
-
-    /*
-     * ==========================================
-     * FUNÇÕES AUXILIARES
-     * ==========================================
-     */
+    const cursosProcessados =
+      new Set();
 
     function limparTexto(valor) {
 
@@ -268,11 +258,60 @@ module.exports = async function handler(req, res) {
 
     }
 
-    /*
-     * ==========================================
-     * CONTAINER VISUAL
-     * ==========================================
-     */
+    function encontrarContainerDados(
+      elemento
+    ) {
+
+      let atual =
+        $(elemento);
+
+      for (
+        let nivel = 0;
+        nivel < 12;
+        nivel++
+      ) {
+
+        atual =
+          atual.parent();
+
+        if (
+          !atual ||
+          !atual.length
+        ) {
+          break;
+        }
+
+        const texto =
+          limparTexto(
+            atual.text()
+          );
+
+        const temInicio =
+          /Início\s*:/i.test(
+            texto
+          );
+
+        const temInvestimento =
+          /Investimento\s*:/i.test(
+            texto
+          );
+
+        if (
+          temInicio &&
+          temInvestimento &&
+          texto.length > 80 &&
+          texto.length < 2500
+        ) {
+
+          return atual;
+
+        }
+
+      }
+
+      return $(elemento);
+
+    }
 
     function encontrarContainerVisual(
       elemento
@@ -333,12 +372,6 @@ module.exports = async function handler(req, res) {
 
     }
 
-    /*
-     * ==========================================
-     * UNIDADE
-     * ==========================================
-     */
-
     function encontrarUnidade(
       container
     ) {
@@ -384,12 +417,6 @@ module.exports = async function handler(req, res) {
         : null;
 
     }
-
-    /*
-     * ==========================================
-     * IMAGEM
-     * ==========================================
-     */
 
     function encontrarImagem(
       container
@@ -497,12 +524,6 @@ module.exports = async function handler(req, res) {
 
     }
 
-    /*
-     * ==========================================
-     * URL DO CURSO
-     * ==========================================
-     */
-
     function encontrarUrl(
       container,
       titulo
@@ -570,237 +591,9 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * BLOCO DE TEXTO DO CURSO
-     * ==========================================
-     *
-     * Pegamos tudo que aparece entre o título
-     * atual e o título do próximo curso.
-     */
-
-    function encontrarBlocoCurso(
-      titulo
-    ) {
-
-      const posicaoTitulo =
-        textoPagina.indexOf(
-          titulo
-        );
-
-      if (
-        posicaoTitulo === -1
-      ) {
-
-        return "";
-
-      }
-
-      const inicio =
-        posicaoTitulo +
-        titulo.length;
-
-      const restante =
-        textoPagina.substring(
-          inicio
-        );
-
-      const proximoCurso =
-        restante.search(
-          /TÉCNICO EM [A-ZÁÉÍÓÚÀÂÊÔÃÕÇ0-9]/i
-        );
-
-      if (
-        proximoCurso === -1
-      ) {
-
-        return restante;
-
-      }
-
-      return restante.substring(
-        0,
-        proximoCurso
-      );
-
-    }
-
-    /*
-     * ==========================================
-     * DESCRIÇÃO
+     * 6. EXTRAÇÃO DOS CURSOS
      * ==========================================
      */
-
-    function encontrarDescricao(
-      titulo
-    ) {
-
-      const bloco =
-        encontrarBlocoCurso(
-          titulo
-        );
-
-      if (!bloco) {
-        return null;
-      }
-
-      const inicioInfo =
-        bloco.search(
-          /Início\s*:/i
-        );
-
-      if (
-        inicioInfo === -1
-      ) {
-        return null;
-      }
-
-      let descricao =
-        bloco.substring(
-          0,
-          inicioInfo
-        );
-
-      descricao =
-        descricao
-          .replace(
-            /Curso Técnico/gi,
-            ""
-          )
-          .replace(
-            /POÇO/gi,
-            ""
-          )
-          .replace(
-            /DISTRITO INDUSTRIAL/gi,
-            ""
-          )
-          .replace(
-            /Compartilhar lista/gi,
-            ""
-          );
-
-      descricao =
-        limparTexto(
-          descricao
-        );
-
-      return descricao || null;
-
-    }
-
-    /*
-     * ==========================================
-     * INVESTIMENTO
-     * ==========================================
-     *
-     * Extraímos o valor diretamente do trecho
-     * entre "Investimento:" e "Confira".
-     */
-
-    function encontrarInvestimento(
-      titulo
-    ) {
-
-      const bloco =
-        encontrarBlocoCurso(
-          titulo
-        );
-
-      if (!bloco) {
-        return null;
-      }
-
-      const resultado =
-        bloco.match(
-          /Investimento\s*:\s*([\s\S]*?)(?=Confira|$)/i
-        );
-
-      if (!resultado) {
-        return null;
-      }
-
-      let investimento =
-        limparTexto(
-          resultado[1]
-        );
-
-      /*
-       * Caso o trecho contenha texto adicional,
-       * encontramos explicitamente o padrão
-       * de parcelas.
-       */
-
-      const valor =
-        investimento.match(
-          /[0-9]+\s*[xX]\s*de\s*R\$\s*[0-9.,]+/i
-        );
-
-      if (valor) {
-
-        return limparTexto(
-          valor[0]
-        );
-
-      }
-
-      /*
-       * Segundo formato possível.
-       */
-
-      const valorAlternativo =
-        investimento.match(
-          /R\$\s*[0-9.,]+/i
-        );
-
-      if (valorAlternativo) {
-
-        return limparTexto(
-          valorAlternativo[0]
-        );
-
-      }
-
-      return investimento || null;
-
-    }
-
-    /*
-     * ==========================================
-     * INÍCIO
-     * ==========================================
-     */
-
-    function encontrarInicio(
-      titulo
-    ) {
-
-      const bloco =
-        encontrarBlocoCurso(
-          titulo
-        );
-
-      if (!bloco) {
-        return null;
-      }
-
-      const resultado =
-        bloco.match(
-          /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
-        );
-
-      return resultado
-        ? resultado[1]
-        : null;
-
-    }
-
-    /*
-     * ==========================================
-     *  CURSOS
-     * ==========================================
-     */
-
-    const titulosCursos =
-      [];
 
     $("h2, h3, h4, h5")
       .each(
@@ -822,127 +615,225 @@ module.exports = async function handler(req, res) {
                 "TÉCNICO EM"
               )
           ) {
-
             return;
-
           }
 
           if (
-            !titulosCursos.includes(
+            cursosProcessados.has(
               titulo
             )
           ) {
+            return;
+          }
 
-            titulosCursos.push(
+          const containerDados =
+            encontrarContainerDados(
+              elemento
+            );
+
+          const containerVisual =
+            encontrarContainerVisual(
+              elemento
+            );
+
+          const textoDados =
+            limparTexto(
+              containerDados.text()
+            );
+
+          const textoVisual =
+            containerVisual
+              ? limparTexto(
+                  containerVisual.text()
+                )
+              : "";
+
+          const textoCompleto =
+            limparTexto(
+              textoVisual +
+              " " +
+              textoDados
+            );
+
+          /*
+           * Início
+           */
+
+          let inicio =
+            null;
+
+          const inicioMatch =
+            textoCompleto.match(
+              /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
+            );
+
+          if (inicioMatch) {
+
+            inicio =
+              inicioMatch[1];
+
+          }
+
+          /*
+           * Investimento
+           */
+
+          let investimento =
+            null;
+
+          const investimentoMatch =
+            textoCompleto.match(
+              /Investimento\s*:\s*(.*?)(?=Confira|$)/i
+            );
+
+          if (investimentoMatch) {
+
+            investimento =
+              limparTexto(
+                investimentoMatch[1]
+              );
+
+          }
+
+          /*
+           * Descrição
+           */
+
+          let descricao =
+            null;
+
+          const paragrafos =
+            containerDados.find(
+              "p"
+            );
+
+          paragrafos.each(
+            (i, elementoP) => {
+
+              if (descricao) {
+                return;
+              }
+
+              const textoP =
+                limparTexto(
+                  $(elementoP).text()
+                );
+
+              if (!textoP) {
+                return;
+              }
+
+              if (
+                /Início\s*:/i.test(
+                  textoP
+                )
+              ) {
+                return;
+              }
+
+              if (
+                /Investimento\s*:/i.test(
+                  textoP
+                )
+              ) {
+                return;
+              }
+
+              if (
+                /Confira/i.test(
+                  textoP
+                )
+              ) {
+                return;
+              }
+
+              if (
+                textoP.length >= 20
+              ) {
+
+                descricao =
+                  textoP;
+
+              }
+
+            }
+          );
+
+          /*
+           * Unidade
+           */
+
+          const unidade =
+            encontrarUnidade(
+              containerVisual ||
+              containerDados
+            );
+
+          /*
+           * Imagem
+           */
+
+          const imagem =
+            encontrarImagem(
+              containerVisual
+            );
+
+          /*
+           * URL
+           */
+
+          const urlCurso =
+            encontrarUrl(
+              containerVisual ||
+              containerDados,
               titulo
             );
 
-          }
+          /*
+           * Adiciona o curso
+           */
+
+          cursosProcessados.add(
+            titulo
+          );
+
+          cursos.push({
+
+            titulo:
+              titulo,
+
+            tipo:
+              "Curso Técnico",
+
+            modalidade:
+              "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+
+            unidade:
+              unidade,
+
+            descricao:
+              descricao,
+
+            inicio:
+              inicio,
+
+            investimento:
+              investimento,
+
+            imagem:
+              imagem,
+
+            url:
+              urlCurso
+
+          });
 
         }
       );
 
     /*
      * ==========================================
-     * MONTA OS OBJETOS
-     * ==========================================
-     */
-
-    const cursos =
-      [];
-
-    titulosCursos.forEach(
-      (titulo) => {
-
-        const elementoTitulo =
-          $("h2, h3, h4, h5")
-            .filter(
-              (index, elemento) =>
-                limparTexto(
-                  $(elemento).text()
-                ) === titulo
-            )
-            .first();
-
-        if (
-          !elementoTitulo.length
-        ) {
-          return;
-        }
-
-        const containerVisual =
-          encontrarContainerVisual(
-            elementoTitulo
-          );
-
-        const descricao =
-          encontrarDescricao(
-            titulo
-          );
-
-        const inicio =
-          encontrarInicio(
-            titulo
-          );
-
-        const investimento =
-          encontrarInvestimento(
-            titulo
-          );
-
-        const unidade =
-          encontrarUnidade(
-            containerVisual
-          );
-
-        const imagem =
-          encontrarImagem(
-            containerVisual
-          );
-
-        const urlCurso =
-          encontrarUrl(
-            containerVisual,
-            titulo
-          );
-
-        cursos.push({
-
-          titulo:
-            titulo,
-
-          tipo:
-            "Curso Técnico",
-
-          modalidade:
-            "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
-
-          unidade:
-            unidade,
-
-          descricao:
-            descricao,
-
-          inicio:
-            inicio,
-
-          investimento:
-            investimento,
-
-          imagem:
-            imagem,
-
-          url:
-            urlCurso
-
-        });
-
-      }
-    );
-
-    /*
-     * ==========================================
-     * REMOVE DUPLICIDADES
+     * 7. REMOVE DUPLICIDADES
      * ==========================================
      */
 
@@ -964,7 +855,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * VALIDAÇÃO
+     * 8. VALIDAÇÃO
      * ==========================================
      */
 
@@ -985,7 +876,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * CATÁLOGO
+     * 9. MONTA CATÁLOGO
      * ==========================================
      */
 
@@ -1016,7 +907,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * SUPABASE
+     * 10. SALVA NO SUPABASE
      * ==========================================
      */
 
@@ -1091,7 +982,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * SUCESSO
+     * 11. SUCESSO
      * ==========================================
      */
 
