@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
   try {
 
     /*
-     * Verificação de segurança do endpoint.
+     * Segurança do endpoint.
      */
 
     const authorization =
@@ -54,8 +54,8 @@ module.exports = async function handler(req, res) {
      * Variáveis de ambiente.
      */
 
-    const browserlessToken =
-      process.env.BROWSERLESS_TOKEN;
+    const scrapingBeeKey =
+      process.env.SCRAPINGBEE_API_KEY;
 
     const supabaseUrl =
       process.env.SUPABASE_URL;
@@ -64,15 +64,15 @@ module.exports = async function handler(req, res) {
       process.env.SUPABASE_SECRET_KEY;
 
     /*
-     * Validação das configurações.
+     * Validação.
      */
 
-    if (!browserlessToken) {
+    if (!scrapingBeeKey) {
 
       return res.status(500).json({
         sucesso: false,
         erro:
-          "BROWSERLESS_TOKEN não configurado no Vercel"
+          "SCRAPINGBEE_API_KEY não configurado no Vercel"
       });
 
     }
@@ -98,7 +98,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Monta os filtros do SENAI.
+     * Filtros do SENAI.
      */
 
     const params =
@@ -124,52 +124,67 @@ module.exports = async function handler(req, res) {
       params.toString();
 
     /*
-     * Endpoint do Browserless.
+     * Consulta pelo ScrapingBee.
+     *
+     * Auto Mode tenta primeiro as configurações
+     * mais baratas e escala até 25 créditos.
+     *
+     * O limite de 25 impede o uso do modo stealth,
+     * que custa 75 créditos.
      */
 
-    const browserlessUrl =
-      "https://production-sfo.browserless.io/unblock" +
-      "?token=" +
-      encodeURIComponent(
-        browserlessToken
-      ) +
-      "&proxy=residential" +
-      "&proxyCountry=br";
+    const scrapingBeeParams =
+      new URLSearchParams();
 
-    /*
-     * Consulta o SENAI através do Browserless.
-     */
+    scrapingBeeParams.set(
+      "url",
+      url
+    );
+
+    scrapingBeeParams.set(
+      "mode",
+      "auto"
+    );
+
+    scrapingBeeParams.set(
+      "max_cost",
+      "25"
+    );
+
+    scrapingBeeParams.set(
+      "country_code",
+      "br"
+    );
+
+    scrapingBeeParams.set(
+      "wait_for",
+      "h3"
+    );
+
+    const scrapingBeeUrl =
+      "https://app.scrapingbee.com/api/v1/?" +
+      scrapingBeeParams.toString();
 
     const resposta =
       await fetch(
-        browserlessUrl,
+        scrapingBeeUrl,
         {
-          method: "POST",
+          method: "GET",
 
           headers: {
-            "Content-Type":
-              "application/json"
-          },
-
-          body:
-            JSON.stringify({
-              url: url,
-              content: true,
-              cookies: false,
-              screenshot: false,
-              browserWSEndpoint: false,
-              waitForTimeout: 5000
-            })
+            Authorization:
+              `Bearer ${scrapingBeeKey}`
+          }
         }
       );
 
     /*
-     * Primeiro lemos como texto.
-     * Isso evita erro quando o Browserless
-     * devolver uma mensagem que não seja JSON.
+     * Lemos a resposta como texto.
+     * Isso permite retornar mensagens úteis
+     * quando o ScrapingBee falhar.
      */
 
-    const textoResposta =
+    const html =
       await resposta.text();
 
     if (!resposta.ok) {
@@ -179,13 +194,13 @@ module.exports = async function handler(req, res) {
         sucesso: false,
 
         erro:
-          "Browserless retornou erro",
+          "ScrapingBee retornou erro",
 
         status:
           resposta.status,
 
         detalhe:
-          textoResposta.substring(
+          html.substring(
             0,
             2000
           )
@@ -193,48 +208,6 @@ module.exports = async function handler(req, res) {
       });
 
     }
-
-    /*
-     * Converte a resposta para JSON.
-     */
-
-    let dados;
-
-    try {
-
-      dados =
-        JSON.parse(
-          textoResposta
-        );
-
-    } catch {
-
-      return res.status(500).json({
-
-        sucesso: false,
-
-        erro:
-          "Browserless não retornou JSON",
-
-        status:
-          resposta.status,
-
-        detalhe:
-          textoResposta.substring(
-            0,
-            2000
-          )
-
-      });
-
-    }
-
-    /*
-     * Obtém o HTML retornado pelo Browserless.
-     */
-
-    const html =
-      dados.content || "";
 
     if (!html) {
 
@@ -243,14 +216,14 @@ module.exports = async function handler(req, res) {
         sucesso: false,
 
         erro:
-          "HTML não encontrado na resposta do Browserless"
+          "ScrapingBee não retornou HTML"
 
       });
 
     }
 
     /*
-     * Carrega o HTML no Cheerio.
+     * Carrega o HTML.
      */
 
     const $ =
@@ -262,7 +235,7 @@ module.exports = async function handler(req, res) {
       new Set();
 
     /*
-     * Função para limpar textos.
+     * Limpa textos.
      */
 
     function limparTexto(valor) {
@@ -274,8 +247,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Cria um slug para casos em que
-     * o endereço não seja encontrado.
+     * Cria slug.
      */
 
     function normalizarSlug(titulo) {
@@ -300,7 +272,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Encontra o bloco com os dados principais.
+     * Encontra o container dos dados.
      */
 
     function encontrarContainerDados(
@@ -359,9 +331,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Encontra o bloco visual do curso.
-     * Esse bloco normalmente contém imagem,
-     * unidade e botão.
+     * Encontra o container visual.
      */
 
     function encontrarContainerVisual(
@@ -403,7 +373,9 @@ module.exports = async function handler(req, res) {
           );
 
         const possuiImagem =
-          atual.find("img").length > 0;
+          atual.find(
+            "img"
+          ).length > 0;
 
         if (
           temCursoTecnico &&
@@ -422,7 +394,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Identifica a unidade.
+     * Encontra a unidade.
      */
 
     function encontrarUnidade(
@@ -472,7 +444,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Identifica a imagem do curso.
+     * Encontra a imagem.
      */
 
     function encontrarImagem(
@@ -515,10 +487,6 @@ module.exports = async function handler(req, res) {
 
           }
         );
-
-      /*
-       * Tenta encontrar imagem em source.
-       */
 
       if (!imagem) {
 
@@ -564,7 +532,8 @@ module.exports = async function handler(req, res) {
       ) {
 
         return (
-          "https:" + imagem
+          "https:" +
+          imagem
         );
 
       }
@@ -585,7 +554,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Encontra o endereço do curso.
+     * Encontra a URL do curso.
      */
 
     function encontrarUrl(
@@ -670,10 +639,6 @@ module.exports = async function handler(req, res) {
             return;
           }
 
-          /*
-           * Só queremos cursos técnicos.
-           */
-
           if (
             !titulo
               .toUpperCase()
@@ -686,10 +651,6 @@ module.exports = async function handler(req, res) {
 
           }
 
-          /*
-           * Evita duplicidade.
-           */
-
           if (
             cursosProcessados.has(
               titulo
@@ -701,7 +662,7 @@ module.exports = async function handler(req, res) {
           }
 
           /*
-           * Encontra os containers.
+           * Containers.
            */
 
           const containerDados =
@@ -734,7 +695,7 @@ module.exports = async function handler(req, res) {
             );
 
           /*
-           * Data de início.
+           * Início.
            */
 
           const inicioMatch =
@@ -857,10 +818,6 @@ module.exports = async function handler(req, res) {
               titulo
             );
 
-          /*
-           * Registra o curso.
-           */
-
           cursosProcessados.add(
             titulo
           );
@@ -900,7 +857,7 @@ module.exports = async function handler(req, res) {
       );
 
     /*
-     * Verifica se encontrou cursos.
+     * Segurança.
      */
 
     if (
@@ -919,7 +876,7 @@ module.exports = async function handler(req, res) {
     }
 
     /*
-     * Monta o catálogo.
+     * Catálogo que será salvo.
      */
 
     const catalogo = {
@@ -948,7 +905,7 @@ module.exports = async function handler(req, res) {
     };
 
     /*
-     * Normaliza a URL do Supabase.
+     * Endpoint REST do Supabase.
      */
 
     const baseSupabaseUrl =
@@ -957,16 +914,12 @@ module.exports = async function handler(req, res) {
         ""
       );
 
-    /*
-     * Endpoint REST do Supabase.
-     */
-
     const supabaseEndpoint =
       baseSupabaseUrl +
       "/rest/v1/catalogos_cursos";
 
     /*
-     * Grava ou atualiza o catálogo.
+     * Salva ou atualiza o catálogo.
      */
 
     const respostaSupabase =
