@@ -102,7 +102,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 3. FILTROS DO SENAI
+     * 3. FILTROS
      * ==========================================
      */
 
@@ -130,7 +130,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 4. CONSULTA SCRAPINGBEE
+     * 4. SCRAPINGBEE
      * ==========================================
      */
 
@@ -228,9 +228,6 @@ module.exports = async function handler(req, res) {
 
     /*
      * Texto completo da página.
-     *
-     * Aqui removemos a dependência da estrutura
-     * dos elementos <p>.
      */
 
     const textoPagina =
@@ -270,6 +267,12 @@ module.exports = async function handler(req, res) {
           "");
 
     }
+
+    /*
+     * ==========================================
+     * CONTAINER VISUAL
+     * ==========================================
+     */
 
     function encontrarContainerVisual(
       elemento
@@ -330,6 +333,12 @@ module.exports = async function handler(req, res) {
 
     }
 
+    /*
+     * ==========================================
+     * UNIDADE
+     * ==========================================
+     */
+
     function encontrarUnidade(
       container
     ) {
@@ -375,6 +384,12 @@ module.exports = async function handler(req, res) {
         : null;
 
     }
+
+    /*
+     * ==========================================
+     * IMAGEM
+     * ==========================================
+     */
 
     function encontrarImagem(
       container
@@ -482,6 +497,12 @@ module.exports = async function handler(req, res) {
 
     }
 
+    /*
+     * ==========================================
+     * URL DO CURSO
+     * ==========================================
+     */
+
     function encontrarUrl(
       container,
       titulo
@@ -549,8 +570,11 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 6. EXTRAI O BLOCO DE TEXTO DO CURSO
+     * BLOCO DE TEXTO DO CURSO
      * ==========================================
+     *
+     * Pegamos tudo que aparece entre o título
+     * atual e o título do próximo curso.
      */
 
     function encontrarBlocoCurso(
@@ -565,7 +589,9 @@ module.exports = async function handler(req, res) {
       if (
         posicaoTitulo === -1
       ) {
+
         return "";
+
       }
 
       const inicio =
@@ -576,10 +602,6 @@ module.exports = async function handler(req, res) {
         textoPagina.substring(
           inicio
         );
-
-      /*
-       * Procuramos o próximo curso.
-       */
 
       const proximoCurso =
         restante.search(
@@ -603,7 +625,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 7. EXTRAI DESCRIÇÃO
+     * DESCRIÇÃO
      * ==========================================
      */
 
@@ -620,13 +642,13 @@ module.exports = async function handler(req, res) {
         return null;
       }
 
-      const inicio =
+      const inicioInfo =
         bloco.search(
           /Início\s*:/i
         );
 
       if (
-        inicio === -1
+        inicioInfo === -1
       ) {
         return null;
       }
@@ -634,14 +656,8 @@ module.exports = async function handler(req, res) {
       let descricao =
         bloco.substring(
           0,
-          inicio
+          inicioInfo
         );
-
-      /*
-       * Remove elementos da interface
-       * que eventualmente estejam antes
-       * da descrição.
-       */
 
       descricao =
         descricao
@@ -660,8 +676,7 @@ module.exports = async function handler(req, res) {
           .replace(
             /Compartilhar lista/gi,
             ""
-          )
-          .trim();
+          );
 
       descricao =
         limparTexto(
@@ -674,8 +689,11 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 8. EXTRAI INVESTIMENTO
+     * INVESTIMENTO
      * ==========================================
+     *
+     * Extraímos o valor diretamente do trecho
+     * entre "Investimento:" e "Confira".
      */
 
     function encontrarInvestimento(
@@ -693,24 +711,91 @@ module.exports = async function handler(req, res) {
 
       const resultado =
         bloco.match(
-          /Investimento\s*:\s*([0-9]+X\s*de\s*R\$\s*[0-9.,]+)/i
+          /Investimento\s*:\s*([\s\S]*?)(?=Confira|$)/i
         );
 
-      if (
-        !resultado
-      ) {
+      if (!resultado) {
         return null;
       }
 
-      return limparTexto(
-        resultado[1]
-      );
+      let investimento =
+        limparTexto(
+          resultado[1]
+        );
+
+      /*
+       * Caso o trecho contenha texto adicional,
+       * encontramos explicitamente o padrão
+       * de parcelas.
+       */
+
+      const valor =
+        investimento.match(
+          /[0-9]+\s*[xX]\s*de\s*R\$\s*[0-9.,]+/i
+        );
+
+      if (valor) {
+
+        return limparTexto(
+          valor[0]
+        );
+
+      }
+
+      /*
+       * Segundo formato possível.
+       */
+
+      const valorAlternativo =
+        investimento.match(
+          /R\$\s*[0-9.,]+/i
+        );
+
+      if (valorAlternativo) {
+
+        return limparTexto(
+          valorAlternativo[0]
+        );
+
+      }
+
+      return investimento || null;
 
     }
 
     /*
      * ==========================================
-     * 9. LOCALIZA OS TÍTULOS
+     * INÍCIO
+     * ==========================================
+     */
+
+    function encontrarInicio(
+      titulo
+    ) {
+
+      const bloco =
+        encontrarBlocoCurso(
+          titulo
+        );
+
+      if (!bloco) {
+        return null;
+      }
+
+      const resultado =
+        bloco.match(
+          /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
+        );
+
+      return resultado
+        ? resultado[1]
+        : null;
+
+    }
+
+    /*
+     * ==========================================
+     *  CURSOS
      * ==========================================
      */
 
@@ -737,7 +822,9 @@ module.exports = async function handler(req, res) {
                 "TÉCNICO EM"
               )
           ) {
+
             return;
+
           }
 
           if (
@@ -757,7 +844,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 10. MONTA OS CURSOS
+     * MONTA OS OBJETOS
      * ==========================================
      */
 
@@ -788,12 +875,13 @@ module.exports = async function handler(req, res) {
             elementoTitulo
           );
 
-        /*
-         * Dados principais
-         */
-
         const descricao =
           encontrarDescricao(
+            titulo
+          );
+
+        const inicio =
+          encontrarInicio(
             titulo
           );
 
@@ -802,103 +890,15 @@ module.exports = async function handler(req, res) {
             titulo
           );
 
-        /*
-         * Início
-         */
-
-        const bloco =
-          encontrarBlocoCurso(
-            titulo
-          );
-
-        let inicio =
-          null;
-
-        if (bloco) {
-
-          const inicioMatch =
-            bloco.match(
-              /Início\s*:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{4})/i
-            );
-
-          if (inicioMatch) {
-
-            inicio =
-              inicioMatch[1];
-
-          }
-
-        }
-
-        /*
-         * Unidade
-         */
-
-        let unidade =
+        const unidade =
           encontrarUnidade(
             containerVisual
           );
-
-        /*
-         * Caso não encontre a unidade
-         * no container visual, procura no bloco.
-         */
-
-        if (!unidade) {
-
-          const blocoMaior =
-            encontrarBlocoCurso(
-              titulo
-            ).toUpperCase();
-
-          const unidades =
-            [];
-
-          if (
-            blocoMaior.includes(
-              "POÇO"
-            )
-          ) {
-
-            unidades.push(
-              "POÇO"
-            );
-
-          }
-
-          if (
-            blocoMaior.includes(
-              "DISTRITO INDUSTRIAL"
-            )
-          ) {
-
-            unidades.push(
-              "DISTRITO INDUSTRIAL"
-            );
-
-          }
-
-          unidade =
-            unidades.length
-              ? unidades.join(
-                  ", "
-                )
-              : null;
-
-        }
-
-        /*
-         * Imagem
-         */
 
         const imagem =
           encontrarImagem(
             containerVisual
           );
-
-        /*
-         * URL
-         */
 
         const urlCurso =
           encontrarUrl(
@@ -942,7 +942,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 11. REMOVE DUPLICIDADES
+     * REMOVE DUPLICIDADES
      * ==========================================
      */
 
@@ -964,7 +964,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 12. VALIDAÇÃO
+     * VALIDAÇÃO
      * ==========================================
      */
 
@@ -985,7 +985,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 13. CATÁLOGO
+     * CATÁLOGO
      * ==========================================
      */
 
@@ -1016,7 +1016,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 14. SUPABASE
+     * SUPABASE
      * ==========================================
      */
 
@@ -1091,7 +1091,7 @@ module.exports = async function handler(req, res) {
 
     /*
      * ==========================================
-     * 15. SUCESSO
+     * SUCESSO
      * ==========================================
      */
 
