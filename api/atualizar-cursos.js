@@ -1,4 +1,5 @@
 const cheerio = require("cheerio");
+const { createClient } = require("@supabase/supabase-js");
 
 module.exports = async function handler(req, res) {
 
@@ -7,7 +8,22 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400"
 );
+const authorization =
+  req.headers.authorization || "";
 
+if (
+  !process.env.CRON_SECRET ||
+  authorization !==
+    `Bearer ${process.env.CRON_SECRET}`
+) {
+
+  return res.status(401).json({
+    sucesso: false,
+    erro: "Não autorizado"
+  });
+
+}
+  
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -29,7 +45,31 @@ module.exports = async function handler(req, res) {
         erro: "BROWSERLESS_TOKEN não configurado no Vercel"
       });
     }
+const supabaseUrl =
+  process.env.SUPABASE_URL;
 
+const supabaseSecretKey =
+  process.env.SUPABASE_SECRET_KEY;
+
+if (
+  !supabaseUrl ||
+  !supabaseSecretKey
+) {
+
+  return res.status(500).json({
+    sucesso: false,
+    erro:
+      "Variáveis do Supabase não configuradas"
+  });
+
+}
+
+const supabase =
+  createClient(
+    supabaseUrl,
+    supabaseSecretKey
+  );
+    
     const params = new URLSearchParams();
 
     params.append(
