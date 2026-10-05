@@ -563,8 +563,66 @@ const supabase =
 
       }
     );
+const catalogo = {
 
+  filtros: {
+
+    modalidade:
+      "HABILITAÇÃO TÉCNICA DE NÍVEL MÉDIO",
+
+    unidades: [
+      "POÇO",
+      "DISTRITO INDUSTRIAL"
+    ]
+
+  },
+
+  cursos: cursos
+
+};
+
+const { error: erroSupabase } =
+  await supabase
+    .from("catalogos_cursos")
+    .upsert(
+      {
+        id: "senai_tecnicos",
+
+        filtros:
+          catalogo.filtros,
+
+        cursos:
+          catalogo.cursos,
+
+        atualizado_em:
+          new Date().toISOString()
+
+      },
+      {
+        onConflict: "id"
+      }
+    );
+
+if (erroSupabase) {
+
+  throw new Error(
+    "Erro ao salvar no Supabase: " +
+    erroSupabase.message
+  );
+
+}
     return res.status(200).json({
+
+  sucesso: true,
+
+  mensagem:
+    "Catálogo atualizado com sucesso",
+
+  total:
+    cursos.length,
+
+  atualizado_em:
+    new Date().toISOString()
 
       sucesso: true,
 
